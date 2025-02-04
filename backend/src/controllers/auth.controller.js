@@ -196,34 +196,31 @@ export const verifyEmail = async (req, res) => {
   try {
     const { id, token } = req.params;
 
-    // Find the token in the database
+    // Find token
     const tokenDoc = await Token.findOne({ userId: id, token });
 
     if (!tokenDoc) {
-      return res.status(400).json({ message: "Invalid or expired token" });
+      return res.status(400).json({
+        message: "Invalid or expired token. Please request a new verification email.",
+      });
     }
 
     // Find the user
     const user = await User.findById(id);
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      return res.status(400).json({ message: "User not found." });
     }
 
     if (user.verified) {
-      return res.status(400).json({ message: "Email already verified" });
+      return res.status(400).json({ message: "Email is already verified." });
     }
 
-    // Verify the user
+    // Verify user and delete token
     user.verified = true;
     await user.save();
-
-    // Delete the token after verification to prevent reuse
     await Token.findByIdAndDelete(tokenDoc._id);
 
-    // Generate JWT for authentication
-    generateToken(user._id, res);
-
-    // Redirect to frontend
+    // Redirect user to frontend
     const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
     res.redirect(`${CLIENT_URL}/login?verified=true`);
   } catch (error) {
@@ -231,3 +228,43 @@ export const verifyEmail = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+export const resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "User not found." });
+    }
+
+    if (user.verified) {
+      return res.status(400).json({ message: "Email is already verified." });
+    }
+
+    // Generate a new token
+    let token = await Token.findOneAndUpdate(
+      { userId: user._id },
+      { token: crypto.randomBytes(32).toString("hex") },
+      { new: true, upsert: true }
+    );
+
+    const url = `${process.env.BASE_URL}/verify/${user._id}/${token.token}`;
+
+    await sendEmail({
+      email: user.email,
+      subject: "Resend Email Verification",
+      html: `<p>Click the button below to verify your email:</p>
+             <a href="${url}" style="padding: 10px; background: #007BFF; color: #fff; text-decoration: none; border-radius: 5px;">Verify Email</a>`
+    });
+
+    return res.status(200).json({
+      message: "A new verification email has been sent.",
+    });
+  } catch (error) {
+    console.error("Resend Email Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+
