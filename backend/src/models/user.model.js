@@ -8,8 +8,8 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      match: [/.+\@.+\..+/, "Invalid email format"], // ✅ Email format validation
-      index: true, // ✅ Optimize search queries
+      match: [/.+\@.+\..+/, "Invalid email format"],
+      index: true,
     },
     fullName: {
       type: String,
@@ -19,9 +19,11 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
       minlength: [6, "Password must be at least 6 characters"],
-      select: false, // ✅ Do NOT return password by default
+      select: false, // ✅ Do not return password by default
+      required: function () {
+        return !this.isGoogleAuth; // ✅ Password is required ONLY if the user is NOT a Google user
+      },
     },
     profilePic: {
       type: String,
@@ -31,11 +33,22 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isGoogleAuth: {
+      type: Boolean,
+      default: false, // ✅ New field to track Google users
+    },
   },
   { timestamps: true }
 );
 
-// ✅ Index for faster queries
+// ✅ Ensure Google users do not have required password validation
+userSchema.pre("validate", function (next) {
+  if (this.isGoogleAuth) {
+    this.password = undefined; // ✅ Prevents validation error for Google users
+  }
+  next();
+});
+
 userSchema.index({ email: 1 });
 
 const User = mongoose.model("User", userSchema);

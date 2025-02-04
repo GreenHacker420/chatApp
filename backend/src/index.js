@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
+import session from "express-session"; // ✅ Added for session handling
+import passport from "./lib/passport.js"; // ✅ Import Passport Config
 import { connectDB } from "./lib/db.js";
 import authRoutes from "./routes/auth.route.js";
 import messageRoutes from "./routes/message.route.js";
@@ -13,6 +15,24 @@ dotenv.config();
 const PORT = process.env.PORT || 5001;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const __dirname = path.resolve();
+
+// ✅ Session Setup (for maintaining user sessions)
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "supersecretkey",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production", // Secure cookies in production
+      httpOnly: true, // Prevents XSS attacks
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days session expiry
+    },
+  })
+);
+
+// ✅ Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use(express.json());
 app.use(cookieParser());

@@ -19,13 +19,29 @@ export const useAuthStore = create((set, get) => ({
     try {
       const res = await axiosInstance.get("/auth/check");
 
-      set({ authUser: res.data });
-      get().connectSocket();
+      if (res.data) {
+        set({ authUser: res.data });
+        get().connectSocket(); // ✅ Connect WebSocket if user is authenticated
+      } else {
+        set({ authUser: null });
+      }
     } catch (error) {
       console.error("Error in checkAuth:", error);
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
+    }
+  },
+
+  // ✅ Handle Google Login Success (Refresh User Session)
+  handleGoogleAuthSuccess: async () => {
+    try {
+      console.log("🔹 Google Auth Success: Fetching user data...");
+      await get().checkAuth(); // ✅ Refresh user session
+      toast.success("Google login successful!");
+    } catch (error) {
+      console.error("Google Auth Error:", error);
+      toast.error("Google login failed!");
     }
   },
 

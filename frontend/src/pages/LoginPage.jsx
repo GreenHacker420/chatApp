@@ -17,6 +17,11 @@ const LoginPage = () => {
     login(formData);
   };
 
+  // ✅ Google Login Handler
+  const googleLogin = () => {
+    window.location.href = "http://localhost:5001/api/auth/google"; // Redirect to backend
+  };
+
   return (
     <div className="h-screen grid lg:grid-cols-2">
       {/* Left Side - Form */}
@@ -96,6 +101,15 @@ const LoginPage = () => {
               )}
             </button>
           </form>
+
+          {/* ✅ Google Login Button */}
+          <button
+            onClick={googleLogin}
+            className="btn btn-outline w-full flex items-center gap-2"
+          >
+            <img src="https://cdn-icons-png.flaticon.com/512/720/720255.png" alt="Google" className="h-5 w-5" />
+            Sign in with Google
+          </button>
 
           <div className="text-center">
             <p className="text-base-content/60">
