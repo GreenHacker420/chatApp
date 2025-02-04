@@ -1,14 +1,9 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-dotenv.config(); // Load environment variables
+dotenv.config();
 
-async function sendEmail({ email, subject, text }) {
+async function sendEmail({ email, subject, text, html }) {
     try {
-        console.log("🛠 DEBUG - Email Config:", {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_PASS ? "Loaded" : "Not Loaded"
-        });
-
         if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
             throw new Error("Missing GMAIL_USER or GMAIL_PASS in environment variables");
         }
@@ -17,15 +12,16 @@ async function sendEmail({ email, subject, text }) {
             service: "gmail",
             auth: {
                 user: process.env.GMAIL_USER,
-                pass: process.env.GMAIL_PASS, // Use your Gmail App Password
+                pass: process.env.GMAIL_PASS,
             }
         });
 
         await transporter.sendMail({
-            from: process.env.GMAIL_USER,
+            from: `"Chat App" <${process.env.GMAIL_USER}>`,
             to: email,
             subject,
-            text
+            text,
+            html, // ✅ Supports HTML emails
         });
 
         console.log("✅ Email sent successfully");
