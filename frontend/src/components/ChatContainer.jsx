@@ -14,21 +14,21 @@ const ChatContainer = () => {
     isMessagesLoading,
     selectedUser,
     subscribeToMessages,
-    unsubscribeFromMessages,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
 
   useEffect(() => {
-    getMessages(selectedUser._id);
+    if (!selectedUser?._id) return;
 
-    subscribeToMessages();
+    getMessages(selectedUser._id); // ✅ Load messages when chat is opened
+    subscribeToMessages(); // ✅ Start listening to new messages
 
-    return () => unsubscribeFromMessages();
-  }, [selectedUser._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser._id]);
 
+  // ✅ Scroll to latest message when messages update
   useEffect(() => {
-    if (messageEndRef.current && messages) {
+    if (messageEndRef.current) {
       messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
@@ -52,7 +52,6 @@ const ChatContainer = () => {
           <div
             key={message._id}
             className={`chat ${message.senderId === authUser._id ? "chat-end" : "chat-start"}`}
-            ref={messageEndRef}
           >
             <div className=" chat-image avatar">
               <div className="size-10 rounded-full border">
@@ -83,10 +82,12 @@ const ChatContainer = () => {
             </div>
           </div>
         ))}
+        <div ref={messageEndRef} /> {/* ✅ Scroll anchor */}
       </div>
 
       <MessageInput />
     </div>
   );
 };
+
 export default ChatContainer;

@@ -5,8 +5,7 @@ import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import { Users } from "lucide-react";
 
 const Sidebar = () => {
-  const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
-
+  const { getUsers, users, selectedUser, setSelectedUser, unreadMessages, isUsersLoading } = useChatStore();
   const { onlineUsers } = useAuthStore();
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
 
@@ -14,9 +13,16 @@ const Sidebar = () => {
     getUsers();
   }, [getUsers]);
 
-  const filteredUsers = showOnlineOnly
-    ? users.filter((user) => onlineUsers.includes(user._id))
-    : users;
+  // ✅ Sort: Online users first, then sort by unread messages count
+  const sortedUsers = [...users].sort((a, b) => {
+    const aOnline = onlineUsers.includes(a._id) ? -1 : 1;
+    const bOnline = onlineUsers.includes(b._id) ? -1 : 1;
+    const aUnread = unreadMessages[a._id] || 0;
+    const bUnread = unreadMessages[b._id] || 0;
+    return aOnline - bOnline || bUnread - aUnread;
+  });
+
+  const filteredUsers = showOnlineOnly ? sortedUsers.filter((user) => onlineUsers.includes(user._id)) : sortedUsers;
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -27,7 +33,7 @@ const Sidebar = () => {
           <Users className="size-6" />
           <span className="font-medium hidden lg:block">Contacts</span>
         </div>
-        {/* TODO: Online filter toggle */}
+        {/* ✅ Online filter toggle */}
         <div className="mt-3 hidden lg:flex items-center gap-2">
           <label className="cursor-pointer flex items-center gap-2">
             <input
@@ -56,20 +62,24 @@ const Sidebar = () => {
             <div className="relative mx-auto lg:mx-0">
               <img
                 src={user.profilePic || "/avatar.png"}
-                alt={user.name}
+                alt={user.fullName}
                 className="size-12 object-cover rounded-full"
               />
               {onlineUsers.includes(user._id) && (
-                <span
-                  className="absolute bottom-0 right-0 size-3 bg-green-500 
-                  rounded-full ring-2 ring-zinc-900"
-                />
+                <span className="absolute bottom-0 right-0 size-3 bg-green-500 rounded-full ring-2 ring-zinc-900" />
               )}
             </div>
 
-            {/* User info - only visible on larger screens */}
+            {/* ✅ User info & Unread Messages Count */}
             <div className="hidden lg:block text-left min-w-0">
-              <div className="font-medium truncate">{user.fullName}</div>
+              <div className="font-medium truncate flex items-center gap-1">
+                {user.fullName}
+                {unreadMessages[user._id] > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                    {unreadMessages[user._id]}
+                  </span>
+                )}
+              </div>
               <div className="text-sm text-zinc-400">
                 {onlineUsers.includes(user._id) ? "Online" : "Offline"}
               </div>

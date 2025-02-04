@@ -14,6 +14,7 @@ export const useAuthStore = create((set, get) => ({
   onlineUsers: [],
   socket: null,
 
+  // ✅ Check if user is authenticated
   checkAuth: async () => {
     try {
       const res = await axiosInstance.get("/auth/check");
@@ -21,14 +22,20 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: res.data });
       get().connectSocket();
     } catch (error) {
-      console.log("Error in checkAuth:", error);
+      console.error("Error in checkAuth:", error);
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
     }
   },
 
+  // ✅ Signup with validation
   signup: async (data) => {
+    if (!data?.email || !data?.password || !data?.fullName) {
+      toast.error("All fields are required");
+      return;
+    }
+
     set({ isSigningUp: true });
     try {
       const res = await axiosInstance.post("/auth/signup", data);
@@ -36,27 +43,38 @@ export const useAuthStore = create((set, get) => ({
       toast.success("Account created successfully");
       get().connectSocket();
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("Signup error:", error.response?.data?.message || error.message);
+      toast.error(error.response?.data?.message || "Signup failed");
     } finally {
       set({ isSigningUp: false });
     }
   },
 
+  // ✅ Login with validation & better error handling
   login: async (data) => {
+    if (!data?.email || !data?.password) {
+      toast.error("Email and password are required");
+      return;
+    }
+
     set({ isLoggingIn: true });
     try {
+      console.log("🔹 Login Data:", data); // Debug log
+
       const res = await axiosInstance.post("/auth/login", data);
       set({ authUser: res.data });
       toast.success("Logged in successfully");
 
       get().connectSocket();
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("Login error:", error.response?.data?.message || error.message);
+      toast.error(error.response?.data?.message || "Invalid credentials");
     } finally {
       set({ isLoggingIn: false });
     }
   },
 
+  // ✅ Logout
   logout: async () => {
     try {
       await axiosInstance.post("/auth/logout");
@@ -64,10 +82,12 @@ export const useAuthStore = create((set, get) => ({
       toast.success("Logged out successfully");
       get().disconnectSocket();
     } catch (error) {
-      toast.error(error.response.data.message);
+      console.error("Logout error:", error.response?.data?.message || error.message);
+      toast.error("Logout failed");
     }
   },
 
+  // ✅ Update Profile
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
@@ -75,31 +95,42 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: res.data });
       toast.success("Profile updated successfully");
     } catch (error) {
-      console.log("error in update profile:", error);
-      toast.error(error.response.data.message);
+      console.error("Error in update profile:", error.response?.data?.message || error.message);
+      toast.error("Profile update failed");
     } finally {
       set({ isUpdatingProfile: false });
     }
   },
 
+  // ✅ WebSocket Connection with Fixes
   connectSocket: () => {
-    const { authUser } = get();
-    if (!authUser || get().socket?.connected) return;
+    const { authUser, socket } = get();
+    if (!authUser) return;
 
-    const socket = io(BASE_URL, {
-      query: {
-        userId: authUser._id,
-      },
+    if (socket && socket.connected) {
+      console.log("✅ Socket already connected.");
+      return;
+    }
+
+    console.log("🔗 Connecting socket...");
+    const newSocket = io(BASE_URL, {
+      query: { userId: authUser._id },
     });
-    socket.connect();
 
-    set({ socket: socket });
+    set({ socket: newSocket });
 
-    socket.on("getOnlineUsers", (userIds) => {
+    newSocket.on("getOnlineUsers", (userIds) => {
       set({ onlineUsers: userIds });
     });
+
+    newSocket.connect();
   },
+
+  // ✅ WebSocket Disconnection Fix
   disconnectSocket: () => {
-    if (get().socket?.connected) get().socket.disconnect();
+    if (get().socket?.connected) {
+      console.log("🔌 Disconnecting socket...");
+      get().socket.disconnect();
+    }
   },
 }));
