@@ -8,9 +8,12 @@ const Sidebar = () => {
   const { getUsers, users, selectedUser, setSelectedUser, unreadMessages, isUsersLoading } = useChatStore();
   const { onlineUsers } = useAuthStore();
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [displayedUsers, setDisplayedUsers] = useState([]);
+  const USERS_PER_LOAD = 10; // ✅ Load users in batches for better performance
 
   useEffect(() => {
-    getUsers();
+    getUsers(); // Fetch users when the sidebar loads
   }, [getUsers]);
 
   // ✅ Sort: Online users first, then sort by unread messages count
@@ -23,6 +26,19 @@ const Sidebar = () => {
   });
 
   const filteredUsers = showOnlineOnly ? sortedUsers.filter((user) => onlineUsers.includes(user._id)) : sortedUsers;
+
+  // ✅ Load users in batches for performance
+  useEffect(() => {
+    setDisplayedUsers(filteredUsers.slice(0, USERS_PER_LOAD));
+  }, [filteredUsers]);
+
+  const loadMoreUsers = () => {
+    setIsLoading(true);
+    setTimeout(() => {
+      setDisplayedUsers((prev) => [...prev, ...filteredUsers.slice(prev.length, prev.length + USERS_PER_LOAD)]);
+      setIsLoading(false);
+    }, 500);
+  };
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -49,7 +65,7 @@ const Sidebar = () => {
       </div>
 
       <div className="overflow-y-auto w-full py-3">
-        {filteredUsers.map((user) => (
+        {displayedUsers.map((user) => (
           <button
             key={user._id}
             onClick={() => setSelectedUser(user)}
@@ -86,6 +102,16 @@ const Sidebar = () => {
             </div>
           </button>
         ))}
+
+        {displayedUsers.length < filteredUsers.length && (
+          <button
+            className="w-full py-3 text-center text-blue-500 hover:underline"
+            onClick={loadMoreUsers}
+            disabled={isLoading}
+          >
+            {isLoading ? "Loading..." : "Load More"}
+          </button>
+        )}
 
         {filteredUsers.length === 0 && (
           <div className="text-center text-zinc-500 py-4">No online users</div>

@@ -3,6 +3,7 @@ import { useAuthStore } from "../store/useAuthStore";
 import AuthImagePattern from "../components/AuthImagePattern";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare } from "lucide-react";
+import toast from "react-hot-toast";
 
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -10,16 +11,37 @@ const LoginPage = () => {
     email: "",
     password: "",
   });
+  const [error, setError] = useState(null); // ✅ Store login errors
   const { login, isLoggingIn } = useAuthStore();
+
+  // ✅ Validate Input Before Submitting
+  const validateForm = () => {
+    if (!formData.email || !formData.password) {
+      setError("Both fields are required.");
+      return false;
+    }
+    if (!formData.email.match(/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/)) {
+      setError("Invalid email format.");
+      return false;
+    }
+    return true;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    login(formData);
+    setError(null); // ✅ Clear previous errors
+    if (!validateForm()) return;
+
+    try {
+      await login(formData);
+    } catch (error) {
+      setError("Invalid email or password."); // ✅ Show error to user
+    }
   };
 
   // ✅ Google Login Handler
   const googleLogin = () => {
-    window.location.href = "http://localhost:5001/api/auth/google"; // Redirect to backend
+    window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`; // ✅ Uses environment variable
   };
 
   return (
@@ -31,8 +53,7 @@ const LoginPage = () => {
           <div className="text-center mb-8">
             <div className="flex flex-col items-center gap-2 group">
               <div
-                className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20
-              transition-colors"
+                className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors"
               >
                 <MessageSquare className="w-6 h-6 text-primary" />
               </div>
@@ -40,6 +61,11 @@ const LoginPage = () => {
               <p className="text-base-content/60">Sign in to your account</p>
             </div>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <p className="text-red-500 text-sm text-center bg-red-100 p-2 rounded-lg">{error}</p>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -57,6 +83,7 @@ const LoginPage = () => {
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && handleSubmit(e)} // ✅ Support Enter key
                 />
               </div>
             </div>
@@ -75,6 +102,7 @@ const LoginPage = () => {
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  onKeyDown={(e) => e.key === "Enter" && handleSubmit(e)} // ✅ Support Enter key
                 />
                 <button
                   type="button"
@@ -106,8 +134,13 @@ const LoginPage = () => {
           <button
             onClick={googleLogin}
             className="btn btn-outline w-full flex items-center gap-2"
+            disabled={isLoggingIn} // ✅ Prevents multiple clicks
           >
-            <img src="https://cdn-icons-png.flaticon.com/512/720/720255.png" alt="Google" className="h-5 w-5" />
+            <img
+              src="https://cdn-icons-png.flaticon.com/512/720/720255.png"
+              alt="Google"
+              className="h-5 w-5"
+            />
             Sign in with Google
           </button>
 
@@ -130,4 +163,5 @@ const LoginPage = () => {
     </div>
   );
 };
+
 export default LoginPage;

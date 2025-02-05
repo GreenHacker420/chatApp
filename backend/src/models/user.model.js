@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import validator from "validator"; // ✅ Using validator.js for better validation
 
 const userSchema = new mongoose.Schema(
   {
@@ -8,7 +9,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-      match: [/.+\@.+\..+/, "Invalid email format"],
+      validate: [validator.isEmail, "Invalid email format"], // ✅ More accurate email validation
       index: true,
     },
     fullName: {
@@ -23,6 +24,12 @@ const userSchema = new mongoose.Schema(
       select: false, // ✅ Do not return password by default
       required: function () {
         return !this.isGoogleAuth; // ✅ Password is required ONLY if the user is NOT a Google user
+      },
+      validate: {
+        validator: function (value) {
+          return !validator.isIn(value, ["password", "123456", "qwerty"]); // ✅ Prevents weak passwords
+        },
+        message: "Choose a stronger password.",
       },
     },
     profilePic: {
@@ -49,7 +56,8 @@ userSchema.pre("validate", function (next) {
   next();
 });
 
-userSchema.index({ email: 1 });
+// ✅ Indexing for faster queries
+userSchema.index({ email: 1, isGoogleAuth: 1 }, { unique: true }); // ✅ Prevent duplicate Google and email users
 
 const User = mongoose.model("User", userSchema);
 

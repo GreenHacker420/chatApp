@@ -1,19 +1,24 @@
 import { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const GoogleAuthSuccess = () => {
-  const { handleGoogleAuthSuccess } = useAuthStore();
+  const { setAuthUser } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
-    const fetchUser = async () => {
-      await handleGoogleAuthSuccess();
-      navigate("/"); // ✅ Redirect to homepage after login
-    };
+    const params = new URLSearchParams(location.search);
+    const token = params.get("token");
 
-    fetchUser();
-  }, [handleGoogleAuthSuccess, navigate]);
+    if (token) {
+      localStorage.setItem("jwt", token); // ✅ Store JWT securely
+      setAuthUser({ isAuthenticated: true }); // ✅ Update global auth state
+      navigate("/"); // ✅ Redirect to homepage after login
+    } else {
+      navigate("/login"); // If no token, go back to login
+    }
+  }, [navigate, location, setAuthUser]);
 
   return (
     <div className="flex items-center justify-center h-screen">
@@ -23,3 +28,4 @@ const GoogleAuthSuccess = () => {
 };
 
 export default GoogleAuthSuccess;
+

@@ -17,6 +17,10 @@ passport.use(
       try {
         let user = await User.findOne({ email: profile.emails[0].value });
 
+        if (user && !user.isGoogleAuth) {
+          return done(null, false, { message: "Email already registered with a password. Use password login instead." });
+        }
+
         if (!user) {
           user = new User({
             fullName: profile.displayName,
@@ -31,16 +35,24 @@ passport.use(
 
         return done(null, user);
       } catch (error) {
+        console.error("Google OAuth Error:", error.message);
         return done(error, null);
       }
     }
   )
 );
 
-passport.serializeUser((user, done) => done(null, user._id));
-passport.deserializeUser(async (id, done) => {
-  const user = await User.findById(id);
-  done(null, user);
+passport.serializeUser((user, done) => {
+  done(null, { id: user._id, role: user.role }); // ✅ Store user role for permissions
+});
+
+passport.deserializeUser(async (data, done) => {
+  try {
+    const user = await User.findById(data.id);
+    done(null, user);
+  } catch (error) {
+    done(error, null);
+  }
 });
 
 export default passport;

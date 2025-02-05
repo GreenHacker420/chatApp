@@ -93,7 +93,8 @@ export const useAuthStore = create((set, get) => ({
   // ✅ Logout
   logout: async () => {
     try {
-      await axiosInstance.post("/auth/logout");
+      await axiosInstance.post("api/auth/logout");
+      localStorage.removeItem("jwt");  // ✅ Remove JWT from storage
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();

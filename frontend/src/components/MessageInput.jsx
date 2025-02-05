@@ -1,47 +1,73 @@
 import { useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Image, Send, X } from "lucide-react";
+import { useAuthStore } from "../store/useAuthStore";
+import { Image, Video, Send, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
-  const [imagePreview, setImagePreview] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [mediaType, setMediaType] = useState(null);
   const fileInputRef = useRef(null);
-  const { sendMessage } = useChatStore();
+  const { sendMessage, selectedUser } = useChatStore();
+  const { socket } = useAuthStore();
 
-  const handleImageChange = (e) => {
+  // ✅ Emit "typing" event when user types
+  const handleTyping = (e) => {
+    setText(e.target.value);
+    if (socket && selectedUser) {
+      socket.emit("typing", { senderId: selectedUser._id });
+    }
+  };
+
+  const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
-      return;
+    if (!file) return;
+
+    const allowedImageTypes = ["image/jpeg", "image/png", "image/gif"];
+    const allowedVideoTypes = ["video/mp4", "video/quicktime"];
+
+    if (![...allowedImageTypes, ...allowedVideoTypes].includes(file.type)) {
+      return toast.error("Invalid file type. Only images and videos are allowed.");
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return toast.error("File size must be less than 5MB.");
     }
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setImagePreview(reader.result);
+      setMediaPreview(reader.result);
+      setMediaType(allowedImageTypes.includes(file.type) ? "image" : "video");
     };
     reader.readAsDataURL(file);
   };
 
-  const removeImage = () => {
-    setImagePreview(null);
+  const removeMedia = () => {
+    setMediaPreview(null);
+    setMediaType(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!text.trim() && !imagePreview) return;
+    if (!text.trim() && !mediaPreview) return;
 
     try {
       await sendMessage({
         text: text.trim(),
-        image: imagePreview,
+        image: mediaType === "image" ? mediaPreview : null,
+        video: mediaType === "video" ? mediaPreview : null,
       });
 
-      // Clear form
+      // ✅ Emit "stopTyping" event when message is sent
+      if (socket && selectedUser) {
+        socket.emit("stopTyping", { senderId: selectedUser._id });
+      }
+
+      // ✅ Clear input
       setText("");
-      setImagePreview(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      removeMedia();
     } catch (error) {
       console.error("Failed to send message:", error);
     }
@@ -49,18 +75,25 @@ const MessageInput = () => {
 
   return (
     <div className="p-4 w-full">
-      {imagePreview && (
+      {mediaPreview && (
         <div className="mb-3 flex items-center gap-2">
           <div className="relative">
-            <img
-              src={imagePreview}
-              alt="Preview"
-              className="w-20 h-20 object-cover rounded-lg border border-zinc-700"
-            />
+            {mediaType === "image" ? (
+              <img
+                src={mediaPreview}
+                alt="Preview"
+                className="w-20 h-20 object-cover rounded-lg border border-zinc-700"
+              />
+            ) : (
+              <video
+                src={mediaPreview}
+                className="w-20 h-20 object-cover rounded-lg border border-zinc-700"
+                controls
+              />
+            )}
             <button
-              onClick={removeImage}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-base-300
-              flex items-center justify-center"
+              onClick={removeMedia}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-base-300 flex items-center justify-center"
               type="button"
             >
               <X className="size-3" />
@@ -76,29 +109,38 @@ const MessageInput = () => {
             className="w-full input input-bordered rounded-lg input-sm sm:input-md"
             placeholder="Type a message..."
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={handleTyping}
           />
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             className="hidden"
             ref={fileInputRef}
-            onChange={handleImageChange}
+            onChange={handleFileChange}
           />
 
           <button
             type="button"
             className={`hidden sm:flex btn btn-circle
-                     ${imagePreview ? "text-emerald-500" : "text-zinc-400"}`}
+                     ${mediaType === "image" ? "text-emerald-500" : "text-zinc-400"}`}
             onClick={() => fileInputRef.current?.click()}
           >
             <Image size={20} />
+          </button>
+
+          <button
+            type="button"
+            className={`hidden sm:flex btn btn-circle
+                     ${mediaType === "video" ? "text-blue-500" : "text-zinc-400"}`}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Video size={20} />
           </button>
         </div>
         <button
           type="submit"
           className="btn btn-sm btn-circle"
-          disabled={!text.trim() && !imagePreview}
+          disabled={!text.trim() && !mediaPreview}
         >
           <Send size={22} />
         </button>
@@ -106,4 +148,5 @@ const MessageInput = () => {
     </div>
   );
 };
+
 export default MessageInput;
