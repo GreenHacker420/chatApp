@@ -13,23 +13,31 @@ const ChatContainer = () => {
     isMessagesLoading,
     selectedUser,
     subscribeToMessages,
-    markMessagesAsRead, // ✅ New function to mark messages as read
+    markMessagesAsRead,
   } = useChatStore();
+  
   const { authUser, socket } = useAuthStore();
   const messageEndRef = useRef(null);
   const [isTyping, setIsTyping] = useState(false);
 
+  // ✅ Load messages and subscribe to real-time updates
   useEffect(() => {
     if (!selectedUser?._id) return;
 
-    getMessages(selectedUser._id); // ✅ Load messages when chat is opened
-    subscribeToMessages(); // ✅ Start listening to new messages
-
-    // ✅ Mark messages as read when opening chat
+    getMessages(selectedUser._id);
+    subscribeToMessages();
     markMessagesAsRead(selectedUser._id);
+
+    return () => {
+      if (socket) {
+        socket.off("typing");
+        socket.off("stopTyping");
+        socket.off("messagesRead");
+      }
+    };
   }, [selectedUser?._id]);
 
-  // ✅ Scroll to latest message when messages update
+  // ✅ Auto-scroll to latest message
   useEffect(() => {
     if (!messages.length) return;
     setTimeout(() => {
@@ -37,39 +45,40 @@ const ChatContainer = () => {
     }, 100);
   }, [messages]);
 
-  // ✅ Listen for "typing" event from backend
+  // ✅ Handle "typing" events
   useEffect(() => {
     if (!socket || !selectedUser) return;
 
-    socket.on("typing", ({ senderId }) => {
-      if (senderId === selectedUser._id) {
-        setIsTyping(true);
-      }
-    });
+    const handleTyping = ({ senderId }) => {
+      if (senderId === selectedUser._id) setIsTyping(true);
+    };
+    
+    const handleStopTyping = ({ senderId }) => {
+      if (senderId === selectedUser._id) setIsTyping(false);
+    };
 
-    socket.on("stopTyping", ({ senderId }) => {
-      if (senderId === selectedUser._id) {
-        setIsTyping(false);
-      }
-    });
+    socket.on("typing", handleTyping);
+    socket.on("stopTyping", handleStopTyping);
 
     return () => {
-      socket.off("typing");
-      socket.off("stopTyping");
+      socket.off("typing", handleTyping);
+      socket.off("stopTyping", handleStopTyping);
     };
   }, [socket, selectedUser]);
 
-  // ✅ Listen for "messagesRead" event from backend
+  // ✅ Handle "messagesRead" event
   useEffect(() => {
     if (!socket || !selectedUser) return;
 
-    socket.on("messagesRead", ({ senderId, receiverId }) => {
-      if (receiverId === authUser._id) {
-        getMessages(selectedUser._id); // ✅ Refresh messages to update read status
+    const handleMessagesRead = ({ senderId, receiverId }) => {
+      if (receiverId === authUser._id && senderId === selectedUser._id) {
+        getMessages(selectedUser._id); // Refresh messages
       }
-    });
+    };
 
-    return () => socket.off("messagesRead");
+    socket.on("messagesRead", handleMessagesRead);
+
+    return () => socket.off("messagesRead", handleMessagesRead);
   }, [socket, selectedUser, authUser]);
 
   if (isMessagesLoading) {
@@ -107,7 +116,6 @@ const ChatContainer = () => {
 
             <div className="chat-header mb-1 flex justify-between w-full">
               <span className="text-xs opacity-50">{formatMessageTime(message.createdAt)}</span>
-              {/* ✅ Show read status */}
               {message.senderId === authUser._id && message.isRead && (
                 <span className="text-xs text-green-500">✔ Read</span>
               )}

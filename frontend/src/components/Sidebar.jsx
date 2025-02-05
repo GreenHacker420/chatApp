@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
@@ -10,35 +10,44 @@ const Sidebar = () => {
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [displayedUsers, setDisplayedUsers] = useState([]);
-  const USERS_PER_LOAD = 10; // ✅ Load users in batches for better performance
+  const USERS_PER_LOAD = 10;
 
-  useEffect(() => {
-    getUsers(); // Fetch users when the sidebar loads
-  }, [getUsers]);
+  // ✅ Memoized Sorted & Filtered Users (Prevents Unnecessary Renders)
+  const sortedUsers = useMemo(() => {
+    return [...users].sort((a, b) => {
+      const aOnline = onlineUsers.includes(a._id) ? -1 : 1;
+      const bOnline = onlineUsers.includes(b._id) ? -1 : 1;
+      const aUnread = unreadMessages[a._id] || 0;
+      const bUnread = unreadMessages[b._id] || 0;
+      return aOnline - bOnline || bUnread - aUnread;
+    });
+  }, [users, onlineUsers, unreadMessages]);
 
-  // ✅ Sort: Online users first, then sort by unread messages count
-  const sortedUsers = [...users].sort((a, b) => {
-    const aOnline = onlineUsers.includes(a._id) ? -1 : 1;
-    const bOnline = onlineUsers.includes(b._id) ? -1 : 1;
-    const aUnread = unreadMessages[a._id] || 0;
-    const bUnread = unreadMessages[b._id] || 0;
-    return aOnline - bOnline || bUnread - aUnread;
-  });
+  const filteredUsers = useMemo(() => {
+    return showOnlineOnly ? sortedUsers.filter((user) => onlineUsers.includes(user._id)) : sortedUsers;
+  }, [sortedUsers, showOnlineOnly]);
 
-  const filteredUsers = showOnlineOnly ? sortedUsers.filter((user) => onlineUsers.includes(user._id)) : sortedUsers;
-
-  // ✅ Load users in batches for performance
+  // ✅ Initialize Displayed Users
   useEffect(() => {
     setDisplayedUsers(filteredUsers.slice(0, USERS_PER_LOAD));
   }, [filteredUsers]);
 
+  // ✅ Load More Users Efficiently
   const loadMoreUsers = () => {
+    if (displayedUsers.length >= filteredUsers.length) return;
     setIsLoading(true);
     setTimeout(() => {
       setDisplayedUsers((prev) => [...prev, ...filteredUsers.slice(prev.length, prev.length + USERS_PER_LOAD)]);
       setIsLoading(false);
-    }, 500);
+    }, 300);
   };
+
+  // ✅ Set Default Selected User Once (Prevent Infinite Loops)
+  useEffect(() => {
+    if (!selectedUser && users.length > 0) {
+      setSelectedUser(users[0]);
+    }
+  }, [users, selectedUser, setSelectedUser]);
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -49,7 +58,7 @@ const Sidebar = () => {
           <Users className="size-6" />
           <span className="font-medium hidden lg:block">Contacts</span>
         </div>
-        {/* ✅ Online filter toggle */}
+        {/* ✅ Toggle: Show Only Online Users */}
         <div className="mt-3 hidden lg:flex items-center gap-2">
           <label className="cursor-pointer flex items-center gap-2">
             <input
@@ -60,7 +69,7 @@ const Sidebar = () => {
             />
             <span className="text-sm">Show online only</span>
           </label>
-          <span className="text-xs text-zinc-500">({onlineUsers.length - 1} online)</span>
+          <span className="text-xs text-zinc-500">({Math.max(onlineUsers.length - 1, 0)} online)</span>
         </div>
       </div>
 
@@ -86,7 +95,7 @@ const Sidebar = () => {
               )}
             </div>
 
-            {/* ✅ User info & Unread Messages Count */}
+            {/* ✅ User Info & Unread Message Count */}
             <div className="hidden lg:block text-left min-w-0">
               <div className="font-medium truncate flex items-center gap-1">
                 {user.fullName}
@@ -103,6 +112,7 @@ const Sidebar = () => {
           </button>
         ))}
 
+        {/* ✅ "Load More" Button */}
         {displayedUsers.length < filteredUsers.length && (
           <button
             className="w-full py-3 text-center text-blue-500 hover:underline"
@@ -120,4 +130,5 @@ const Sidebar = () => {
     </aside>
   );
 };
+
 export default Sidebar;

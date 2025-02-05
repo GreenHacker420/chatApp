@@ -40,15 +40,25 @@ export const useChatStore = create((set, get) => ({
 
       // ✅ Mark messages as read when opening the chat
       if (page === 1) {
-        await axiosInstance.post(`/messages/mark-as-read/${userId}`);
-        set((state) => ({
-          unreadMessages: { ...state.unreadMessages, [userId]: 0 },
-        }));
+        await get().markMessagesAsRead(userId);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load messages");
     } finally {
       set({ isMessagesLoading: false });
+    }
+  },
+
+  // ✅ Mark messages as read
+  markMessagesAsRead: async (userId) => {
+    if (!userId) return;
+    try {
+      await axiosInstance.post(`/messages/mark-as-read/${userId}`);
+      set((state) => ({
+        unreadMessages: { ...state.unreadMessages, [userId]: 0 },
+      }));
+    } catch (error) {
+      console.error("Failed to mark messages as read:", error);
     }
   },
 
@@ -86,7 +96,7 @@ export const useChatStore = create((set, get) => ({
       }));
 
       if (isChatOpen) {
-        axiosInstance.post(`/messages/mark-as-read/${senderId}`);
+        get().markMessagesAsRead(senderId);
       }
     });
   },
@@ -99,5 +109,6 @@ export const useChatStore = create((set, get) => ({
     await get().getMessages(selectedUser._id, currentPage + 1);
   },
 
-  setSelectedUser: (selectedUser) => set({ selectedUser, messages: [], currentPage: 1, hasMoreMessages: true }),
+  setSelectedUser: (selectedUser) =>
+    set({ selectedUser, messages: [], currentPage: 1, hasMoreMessages: true }),
 }));
