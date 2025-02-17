@@ -12,7 +12,7 @@ const allowedOrigins =
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: "http://localhost:5173",
     credentials: true,
   },
   pingTimeout: 30000, // ✅ Increased timeout to prevent unnecessary disconnects

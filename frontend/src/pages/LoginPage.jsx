@@ -41,7 +41,7 @@ const LoginPage = () => {
 
   // ✅ Google Login Handler
   const googleLogin = () => {
-    window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`; // ✅ Uses environment variable
+    window.location.href = `http://localhost:5001/api/auth/google`; // ✅ Uses environment variable
   };
 
   return (

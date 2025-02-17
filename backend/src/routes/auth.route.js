@@ -11,6 +11,8 @@ import {
 } from "../controllers/auth.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimit } from "express-rate-limit"; // ✅ Prevents spam on email verification
+import { generateToken } from "../lib/utils.js"; // ✅ Ensure correct path
+
 
 const router = express.Router();
 
@@ -29,14 +31,14 @@ router.get("/verify/:id/:token", verifyEmail);
 router.post("/resend-verification", emailRateLimiter, resendVerificationEmail);
 
 // ✅ Google OAuth Routes
-router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+router.get("/google", passport.authenticate("google", { scope: ["openid", "profile", "email"] }));
 
 router.get(
   "/google/callback",
   passport.authenticate("google", { session: false, failureRedirect: `${process.env.CLIENT_URL}/login?error=true` }),
   (req, res) => {
     // ✅ Generate JWT Token for Google OAuth users
-    const token = generateToken(req.user._id); // Generate JWT
+    const token = generateToken(req.user._id);
     res.redirect(`${process.env.CLIENT_URL}/google-auth-success?token=${token}`);
   }
 );

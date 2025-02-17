@@ -1,35 +1,58 @@
+// import jwt from "jsonwebtoken";
+
+// export const generateToken = (userId, res) => {
+//   try {
+//     const token = jwt.sign(
+//       { userId, tokenType: "auth" }, // ✅ Ensures tokenType is included
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     res.cookie("jwt", token, {
+//       maxAge: 7 * 24 * 60 * 60 * 1000, // ✅ 7 days in milliseconds
+//       httpOnly: true, // ✅ Prevents XSS attacks
+//       sameSite: "strict", // ✅ Protects against CSRF attacks
+//       secure: process.env.NODE_ENV === "production", // ✅ Use HTTPS in production
+//       path: "/", // ✅ Cookie accessible across all routes
+//     });
+
+//     return token;
+//   } catch (error) {
+//     console.error("❌ Error generating token:", error.message);
+//     res.status(500).json({ message: "Internal Server Error" });
+//   }
+// };
+
 import jwt from "jsonwebtoken";
 
-/**
- * ✅ Generates an authentication token & sets it as a cookie (if response object provided)
- * @param {string} userId - The ID of the authenticated user
- * @param {Object} res - Express response object (optional)
- * @param {string} expiresIn - Token expiration time (default: 7 days)
- * @returns {string} JWT token
- */
-export const generateToken = (userId, res = null, expiresIn = "7d") => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn });
+export const generateToken = (userId, res = null) => {
+  try {
+    console.log("🔹 Generating Token for User:", userId);
 
-  // ✅ If a response object is provided, set the token in an HTTP-only cookie
-  if (res) {
-    res.cookie("jwt", token, {
-      maxAge: expiresIn === "7d" ? 7 * 24 * 60 * 60 * 1000 : 15 * 60 * 1000, // 7 days or 15 mins
-      httpOnly: true, // ✅ Prevents XSS attacks
-      sameSite: "Strict", // ✅ Protects against CSRF attacks
-      secure: process.env.NODE_ENV === "production", // ✅ Use HTTPS in production
-      domain: process.env.NODE_ENV === "production" ? ".yourdomain.com" : undefined, // ✅ Set domain in production
-      path: "/", // ✅ Ensure the cookie is accessible on all routes
-    });
+    const token = jwt.sign(
+      { userId, tokenType: "auth" }, 
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    console.log("✅ Token Generated:", token);
+
+    // Only set a cookie if `res` is provided
+    if (res) {
+      res.cookie("jwt", token, {
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: "strict",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+      });
+    }
+
+    return token;
+  } catch (error) {
+    console.error("❌ Error generating token:", error.message);
+    if (res) res.status(500).json({ message: "Token generation failed" });
+    return null; // Ensure function still returns something
   }
-
-  return token;
 };
 
-/**
- * ✅ Generates a refresh token with a longer expiry (e.g., 30 days)
- * @param {string} userId - The ID of the user
- * @returns {string} Refresh JWT token
- */
-export const generateRefreshToken = (userId) => {
-  return jwt.sign({ userId }, process.env.REFRESH_SECRET, { expiresIn: "30d" });
-};

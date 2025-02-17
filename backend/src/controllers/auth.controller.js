@@ -6,30 +6,43 @@ import sendEmail from "../utils/sendEmail.js";
 import crypto from "crypto";
 import Token from "../models/token.model.js";
 
+
+
+
 // ✅ Sign Up
 export const signup = async (req, res) => {
   try {
+    console.log("🔹 Signup Request Received:", req.body); // ✅ Debugging log
+
     const { fullName, email, password } = req.body;
 
     if (!fullName || !email || !password) {
+      console.log("❌ Missing Fields");
       return res.status(400).json({ message: "All fields are required" });
     }
 
     if (password.length < 6 || ["password", "123456", "qwerty"].includes(password)) {
+      console.log("❌ Weak Password Attempt");
       return res.status(400).json({ message: "Choose a stronger password (min 6 characters, no common passwords)." });
     }
 
     const existingUser = await User.findOne({ email });
-
     if (existingUser) {
+      console.log("⚠️ Existing User Found:", existingUser.email);
+
       if (!existingUser.verified) {
+        console.log("🔄 Resending Verification Email");
+
         await Token.findOneAndDelete({ userId: existingUser._id }); // ✅ Delete old token before creating a new one
+
         const token = await new Token({
           userId: existingUser._id,
           token: crypto.randomBytes(32).toString("hex"),
         }).save();
 
         const url = `${process.env.BASE_URL}/verify/${existingUser._id}/${token.token}`;
+        console.log("📩 Verification Email Sent to:", existingUser.email, "URL:", url);
+        
         await sendEmail({
           email: existingUser.email,
           subject: "Email Confirmation",
@@ -44,7 +57,11 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "Email already exists and is verified." });
     }
 
+    console.log("✅ Creating New User");
+
+    
     const hashedPassword = await bcrypt.hash(password, 10);
+
     const newUser = await User.create({
       fullName,
       email,
@@ -52,12 +69,20 @@ export const signup = async (req, res) => {
       verified: false,
     });
 
+    console.log("✅ User Created:", newUser._id);
+
     const token = await new Token({
       userId: newUser._id,
       token: crypto.randomBytes(32).toString("hex"),
+      tokenType: "emailVerification", // ✅ Fix: Ensure tokenType is included
     }).save();
+    
+
+    console.log("🔹 Token Created:", token.token);
 
     const url = `${process.env.BASE_URL}/verify/${newUser._id}/${token.token}`;
+    console.log("📩 Sending Verification Email to:", newUser.email, "URL:", url);
+
     await sendEmail({
       email: newUser.email,
       subject: "Email Confirmation",
@@ -66,10 +91,11 @@ export const signup = async (req, res) => {
 
     res.status(201).json({ message: "Signup successful! Please check your email to verify your account." });
   } catch (error) {
-    console.error("Signup Error:", error.message);
+    console.error("❌ Signup Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
 
 // ✅ Login
 export const login = async (req, res) => {
@@ -120,9 +146,21 @@ export const login = async (req, res) => {
 
 // ✅ Logout
 export const logout = (req, res) => {
-  res.cookie("jwt", "", { maxAge: 0 });
-  res.status(200).json({ message: "Logged out successfully" });
+  try {
+    res.cookie("jwt", "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // Ensure HTTPS in production
+      sameSite: "strict",
+      expires: new Date(0), // ✅ Expire immediately
+    });
+
+    res.status(200).json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 };
+
 
 // ✅ Update Profile
 export const updateProfile = async (req, res) => {
@@ -152,8 +190,13 @@ export const updateProfile = async (req, res) => {
 };
 
 // ✅ Check Authentication
-export const checkAuth = (req, res) => {
-  res.status(200).json(req.user);
+export const checkAuth = async (req, res) => {
+  try {
+    res.status(200).json(req.user);
+  } catch (error) {
+    console.error("CheckAuth Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 };
 
 // ✅ Verify Email

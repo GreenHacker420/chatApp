@@ -7,37 +7,45 @@ const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:5001
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
+  setAuthUser: (user) => set({ authUser: user }),
+
   isSigningUp: false,
   isLoggingIn: false,
   isUpdatingProfile: false,
   isCheckingAuth: true,
   onlineUsers: [],
   socket: null,
+  isLoggingOut: false,
 
-  // ✅ Check if user is authenticated
+  // ✅ Check if user is authenticated & update auth state
   checkAuth: async () => {
     try {
-      const res = await axiosInstance.get("/auth/check");
-
-      if (res.data) {
-        set({ authUser: res.data });
-        get().connectSocket(); // ✅ Connect WebSocket if user is authenticated
-      } else {
-        set({ authUser: null });
+      const token = localStorage.getItem("jwt");
+      if (!token) {
+        console.log("No token found, skipping auth check");
+        return;
       }
+
+      const response = await axiosInstance.get("/auth/check");
+      console.log("✅ Authenticated User:", response.data);
+      set({ authUser: response.data });
+      get().connectSocket();
     } catch (error) {
-      console.error("Error in checkAuth:", error);
-      set({ authUser: null });
+      console.warn("⚠️ Auth check failed:", error.response?.data?.message || error.message);
+      if (error.response?.status === 401) {
+        localStorage.removeItem("jwt");
+        set({ authUser: null, socket: null, onlineUsers: [] });
+      }
     } finally {
       set({ isCheckingAuth: false });
     }
   },
 
-  // ✅ Handle Google Login Success (Refresh User Session)
+  // ✅ Google Login Success (Refresh User Session)
   handleGoogleAuthSuccess: async () => {
     try {
       console.log("🔹 Google Auth Success: Fetching user data...");
-      await get().checkAuth(); // ✅ Refresh user session
+      await get().checkAuth();
       toast.success("Google login successful!");
     } catch (error) {
       console.error("Google Auth Error:", error);
@@ -54,7 +62,7 @@ export const useAuthStore = create((set, get) => ({
 
     set({ isSigningUp: true });
     try {
-      const res = await axiosInstance.post("/auth/signup", data);
+      const res = await axiosInstance.post("/auth/signup", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Account created successfully");
       get().connectSocket();
@@ -72,35 +80,41 @@ export const useAuthStore = create((set, get) => ({
       toast.error("Email and password are required");
       return;
     }
-
+  
     set({ isLoggingIn: true });
     try {
-      console.log("🔹 Login Data:", data); // Debug log
-
-      const res = await axiosInstance.post("/auth/login", data);
+      const res = await axiosInstance.post("/auth/login", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Logged in successfully");
-
       get().connectSocket();
     } catch (error) {
       console.error("Login error:", error.response?.data?.message || error.message);
-      toast.error(error.response?.data?.message || "Invalid credentials");
+  
+      if (error.response?.status === 403) {
+        toast.error("Please verify your email before logging in.");
+      } else {
+        toast.error(error.response?.data?.message || "Invalid credentials");
+      }
     } finally {
       set({ isLoggingIn: false });
     }
   },
 
-  // ✅ Logout
+  // ✅ Logout with Socket Disconnection & Token Clearing
   logout: async () => {
+    set({ isLoggingOut: true });
     try {
-      await axiosInstance.post("api/auth/logout");
-      localStorage.removeItem("jwt");  // ✅ Remove JWT from storage
-      set({ authUser: null });
-      toast.success("Logged out successfully");
+      await axiosInstance.post("/auth/logout", {}, { withCredentials: true });
       get().disconnectSocket();
+      localStorage.removeItem("jwt");
+      set({ authUser: null, socket: null, onlineUsers: [] });
+      toast.success("Logged out successfully");
+      window.location.href = "/login";
     } catch (error) {
-      console.error("Logout error:", error.response?.data?.message || error.message);
-      toast.error("Logout failed");
+      console.error("Logout failed:", error.response?.data?.message || error.message);
+      toast.error("Logout failed, please try again");
+    } finally {
+      set({ isLoggingOut: false });
     }
   },
 
@@ -108,7 +122,7 @@ export const useAuthStore = create((set, get) => ({
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
-      const res = await axiosInstance.put("/auth/update-profile", data);
+      const res = await axiosInstance.put("/auth/update-profile", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Profile updated successfully");
     } catch (error) {
@@ -119,7 +133,7 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // ✅ WebSocket Connection with Fixes
+  // ✅ WebSocket Connection (Prevents Duplicates)
   connectSocket: () => {
     const { authUser, socket } = get();
     if (!authUser) return;
@@ -132,22 +146,26 @@ export const useAuthStore = create((set, get) => ({
     console.log("🔗 Connecting socket...");
     const newSocket = io(BASE_URL, {
       query: { userId: authUser._id },
+      withCredentials: true,
+      transports: ["websocket"],
     });
 
     set({ socket: newSocket });
 
+    newSocket.on("connect", () => console.log("✅ Socket connected:", newSocket.id));
     newSocket.on("getOnlineUsers", (userIds) => {
-      set({ onlineUsers: userIds });
+      console.log("🟢 Received Online Users:", userIds);
+      set({ onlineUsers: [...userIds] }); // Forces Zustand to update state
     });
-
-    newSocket.connect();
+    newSocket.on("disconnect", () => console.log("🔴 Socket disconnected"));
   },
 
-  // ✅ WebSocket Disconnection Fix
+  // ✅ WebSocket Disconnection
   disconnectSocket: () => {
-    if (get().socket?.connected) {
+    const { socket } = get();
+    if (socket?.connected) {
       console.log("🔌 Disconnecting socket...");
-      get().socket.disconnect();
+      socket.disconnect();
     }
   },
 }));
