@@ -20,32 +20,27 @@ export const useAuthStore = create((set, get) => ({
   // ✅ Check if user is authenticated & update auth state
   checkAuth: async () => {
     try {
-      const token = localStorage.getItem("jwt");
-      if (!token) {
-        console.log("No token found, skipping auth check");
-        return;
+      const response = await axiosInstance.get("/auth/check", { withCredentials: true }); // ✅ Ensure cookies are sent
+      if (response.data) {
+        console.log("✅ Authenticated User:", response.data);
+        set({ authUser: response.data });
+        get().connectSocket();
+      } else {
+        console.warn("⚠️ No user data received from auth check.");
+        set({ authUser: null });
       }
-
-      const response = await axiosInstance.get("/auth/check");
-      console.log("✅ Authenticated User:", response.data);
-      set({ authUser: response.data });
-      get().connectSocket();
     } catch (error) {
       console.warn("⚠️ Auth check failed:", error.response?.data?.message || error.message);
-      if (error.response?.status === 401) {
-        localStorage.removeItem("jwt");
-        set({ authUser: null, socket: null, onlineUsers: [] });
-      }
+      set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
     }
   },
-
   // ✅ Google Login Success (Refresh User Session)
   handleGoogleAuthSuccess: async () => {
     try {
       console.log("🔹 Google Auth Success: Fetching user data...");
-      await get().checkAuth();
+      await get().checkAuth(); // ✅ Refresh auth state from cookies
       toast.success("Google login successful!");
     } catch (error) {
       console.error("Google Auth Error:", error);

@@ -23,9 +23,50 @@
 //   }
 // };
 
+// import jwt from "jsonwebtoken";
+
+// export const generateToken = (userId, res = null) => {
+//   try {
+//     console.log("🔹 Generating Token for User:", userId);
+
+//     const token = jwt.sign(
+//       { userId, tokenType: "auth" },
+//       process.env.JWT_SECRET,
+//       { expiresIn: "7d" }
+//     );
+
+//     console.log("✅ Token Generated:", token.slice(0, 10) + "... (truncated)");
+
+//     // ✅ Only set a cookie if `res` is provided
+//     if (res) {
+//       res.cookie("jwt", token, {
+//         expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+//         httpOnly: true,
+//         secure: process.env.NODE_ENV === "production",
+//         sameSite: "strict",
+//         path: "/",
+//       });
+//       return token;
+//     }
+
+//     // ✅ Return token directly if `res` is not provided (for OAuth)
+//     return token;
+//   } catch (error) {
+//     console.error("❌ Error generating token:", error.message);
+
+//     // ✅ Prevent crashing when `res` is not available
+//     if (res) {
+//       res.status(500).json({ message: "Token generation failed" });
+//     }
+
+//     return null;
+//   }
+// };
+
+
 import jwt from "jsonwebtoken";
 
-export const generateToken = (userId, res = null) => {
+export const generateToken = (userId, res) => {
   try {
     console.log("🔹 Generating Token for User:", userId);
 
@@ -37,7 +78,7 @@ export const generateToken = (userId, res = null) => {
 
     console.log("✅ Token Generated:", token);
 
-    // Only set a cookie if `res` is provided
+    // ✅ Ensure res is provided, then set the cookie
     if (res) {
       res.cookie("jwt", token, {
         maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -48,11 +89,10 @@ export const generateToken = (userId, res = null) => {
       });
     }
 
-    return token;
+    return token; // Still return the token if needed
   } catch (error) {
     console.error("❌ Error generating token:", error.message);
     if (res) res.status(500).json({ message: "Token generation failed" });
-    return null; // Ensure function still returns something
+    return null;
   }
 };
-

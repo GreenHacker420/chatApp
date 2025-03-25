@@ -18,8 +18,17 @@ export const useChatStore = create((set, get) => ({
     set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
+      console.log("🔍 Users fetched:", res.data); // ✅ Debugging fetched users
+  
+      if (!Array.isArray(res.data.users)) {
+        console.error("🚨 Unexpected response format:", res.data);
+        toast.error("Invalid users data received.");
+        return;
+      }
+  
       set({ users: res.data.users });
     } catch (error) {
+      console.error("❌ Failed to fetch users:", error);
       toast.error(error.response?.data?.message || "Failed to fetch users");
     } finally {
       set({ isUsersLoading: false });

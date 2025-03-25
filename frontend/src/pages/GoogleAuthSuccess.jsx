@@ -1,27 +1,19 @@
 import { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 const GoogleAuthSuccess = () => {
   const { checkAuth } = useAuthStore();
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const token = params.get("token");
-
-    if (token) {
-      localStorage.setItem("jwt", token); // Store JWT securely
-      
-      // Call checkAuth to fetch full user data and update the auth state
-      checkAuth().then(() => {
-        navigate("/", { replace: true }); // Redirect to homepage after auth check
-      });
-    } else {
-      navigate("/login", { replace: true }); // If no token, go back to login
-    }
-  }, [navigate, location, checkAuth]);
+    // ✅ Fetch user session from backend (cookie-based)
+    checkAuth().then(() => {
+      navigate("/", { replace: true }); // ✅ Redirect to homepage after auth check
+    }).catch(() => {
+      navigate("/login", { replace: true }); // ✅ Redirect to login if auth fails
+    });
+  }, [navigate, checkAuth]);
 
   return (
     <div className="flex items-center justify-center h-screen">

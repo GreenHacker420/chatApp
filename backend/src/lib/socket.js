@@ -30,11 +30,11 @@ io.on("connection", (socket) => {
   console.log("✅ A user connected:", socket.id);
 
   const userId = socket.handshake.query.userId;
-
+  
   if (userId) {
     userSocketMap.set(userId, socket.id);
-    socket.data.userId = userId; // ✅ Store userId in socket data
-    io.emit("getOnlineUsers", Array.from(userSocketMap.keys())); // ✅ Notify all users
+    socket.data.userId = userId;
+    io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
   }
 
   // ✅ Handle real-time messaging
@@ -78,21 +78,12 @@ io.on("connection", (socket) => {
 
   // ✅ Handle user disconnection properly
   socket.on("disconnect", () => {
-    console.log("❌ A user disconnected:", socket.id);
-
+    console.log("❌ User disconnected:", socket.id);
     const storedUserId = socket.data.userId;
-
-    if (storedUserId && userSocketMap.get(storedUserId) === socket.id) {
-      // ✅ Delay removing the user to prevent false disconnects
-      setTimeout(() => {
-        if (userSocketMap.get(storedUserId) === socket.id) {
-          userSocketMap.delete(storedUserId);
-          io.emit("getOnlineUsers", Array.from(userSocketMap.keys())); // ✅ Update online users
-          io.emit("userDisconnected", storedUserId); // ✅ Notify users who left
-        }
-      }, 5000); // ✅ Wait 5 seconds before removing user
-    }
-  });
+    if (storedUserId) {
+      userSocketMap.delete(storedUserId);
+      io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+    }});
 
   // ✅ Handle WebSocket reconnections
   socket.on("reconnect_attempt", () => {

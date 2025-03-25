@@ -37,9 +37,14 @@ router.get(
   "/google/callback",
   passport.authenticate("google", { session: false, failureRedirect: `${process.env.CLIENT_URL}/login?error=true` }),
   (req, res) => {
-    // ✅ Generate JWT Token for Google OAuth users
-    const token = generateToken(req.user._id);
-    res.redirect(`${process.env.CLIENT_URL}/google-auth-success?token=${token}`);
+    if (!req.user) {
+      return res.redirect(`${process.env.CLIENT_URL}/login?error=OAuthFailed`);
+    }
+
+    // ✅ Pass `res` to `generateToken` so it correctly sets the cookie
+    generateToken(req.user._id, res);
+
+    res.redirect(`${process.env.CLIENT_URL}/google-auth-success`);
   }
 );
 

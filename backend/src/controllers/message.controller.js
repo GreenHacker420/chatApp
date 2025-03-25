@@ -8,7 +8,7 @@ export const getMessages = async (req, res) => {
   try {
     const { id: userToChatId } = req.params;
     const myId = req.user._id;
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 500 } = req.query;
 
     const messages = await Message.find({
       $or: [
@@ -58,21 +58,24 @@ export const getMessages = async (req, res) => {
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
-    const { page = 1, limit = 10 } = req.query; // ✅ Pagination support
+    const { page = 1, limit } = req.query;
+
+    // ✅ If limit=0 or not provided, fetch all users
+    const queryLimit = limit && parseInt(limit) > 0 ? parseInt(limit) : 0;
 
     const users = await User.find({ _id: { $ne: loggedInUserId } })
       .select("-password")
-      .sort({ createdAt: -1 }) // ✅ Show the latest users first
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * queryLimit)
+      .limit(queryLimit || 0); // ✅ 0 means no limit (fetch all)
 
     // ✅ Fix: Define `totalUsers`
     const totalUsers = await User.countDocuments({ _id: { $ne: loggedInUserId } });
 
     res.status(200).json({
       users,
-      totalUsers, // ✅ Make sure `totalUsers` is included in the response
-      totalPages: Math.ceil(totalUsers / limit),
+      totalUsers,
+      totalPages: queryLimit > 0 ? Math.ceil(totalUsers / queryLimit) : 1, // ✅ Adjust pages
       currentPage: Number(page),
     });
   } catch (error) {

@@ -24,13 +24,13 @@ const NoChatSelected = () => {
         </p>
 
         {/* ✅ Call-to-Action Button */}
-        <button
+        {/* <button
           onClick={openNewChatModal}
           className="btn btn-primary flex items-center gap-2 mt-4"
         >
           <Users className="w-5 h-5" />
           Start a New Chat
-        </button>
+        </button> */}
       </div>
     </div>
   );
