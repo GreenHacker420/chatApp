@@ -13,7 +13,7 @@ import passport from "./lib/passport.js"; // ✅ Ensure Passport is imported
 dotenv.config();
 
 const PORT = process.env.PORT || 5001;
-const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 // ✅ Fix `__dirname` for ES module compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -49,10 +49,12 @@ app.use("/api/messages", messageRoutes);
 
 // ✅ Serve frontend in production
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/dist")));
+  const frontendPath = path.join(__dirname, "../public");
+
+  app.use(express.static(frontendPath));
 
   app.get("*", (req, res) => {
-    res.sendFile(path.join(__dirname, "../frontend", "dist", "index.html"));
+    res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
 
