@@ -41,13 +41,17 @@ router.get(
       return res.redirect(`${process.env.CLIENT_URL}/login?error=OAuthFailed`);
     }
 
-    // ✅ Pass `res` to `generateToken` so it correctly sets the cookie
-    generateToken(req.user._id, res);
+    // ✅ Store JWT in HTTP-only cookie
+    res.cookie("jwt", generateToken(req.user._id), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
 
     res.redirect(`${process.env.CLIENT_URL}/google-auth-success`);
   }
 );
-
 // ✅ Protected Routes
 router.put("/update-profile", protectRoute, updateProfile);
 router.get("/check", protectRoute, checkAuth);

@@ -1,5 +1,5 @@
 // import jwt from "jsonwebtoken";
-// import User from "../models/user.model.js";
+import User from "../models/user.model.js";
 
 // export const protectRoute = async (req, res, next) => {
 //   try {
@@ -40,19 +40,20 @@ import User from "../models/user.model.js";
 
 export const protectRoute = async (req, res, next) => {
   try {
-    const token = req.cookies.jwt; // ✅ Read token from HTTP-only cookie
+    const token = req.cookies?.jwt; // ✅ Ensure cookies exist before accessing
 
     if (!token) {
-      req.user = null;
-      return next();
+      return res.status(401).json({ message: "Not authenticated" }); // ✅ Properly return 401 Unauthorized
     }
 
+    // ✅ Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (!decoded || decoded.tokenType !== "auth") {
-      return res.status(401).json({ message: "Invalid token" });
+    if (!decoded.tokenType || decoded.tokenType !== "auth") {
+      return res.status(401).json({ message: "Token validation failed: tokenType is invalid or missing" });
     }
 
+    // ✅ Find user
     const user = await User.findById(decoded.userId).select("-password");
 
     if (!user) {
@@ -63,6 +64,6 @@ export const protectRoute = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("❌ Token validation error:", error.message);
-    res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthorized" }); // ✅ Ensure proper 401 response
   }
 };
