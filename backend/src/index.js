@@ -28,7 +28,7 @@ app.use(cookieParser());
 // ✅ Allow CORS only for frontend (Supports both local & production)
 app.use(
   cors({
-    origin: [FRONTEND_URL, PRODUCTION_URL],
+    origin: ["https://gutargu.greenhacker.tech"],
     credentials: true, // ✅ Allows cookies & authentication
   })
 );
