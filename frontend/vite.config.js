@@ -1,19 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path from "path";
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "dist", // ✅ Ensure it outputs to `dist`
-    emptyOutDir: true, // ✅ Clears old files before building
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    outDir: "dist", // ✅ Ensures build output is placed in "dist/"
   },
   server: {
-    port: 5173, // ✅ Local dev server port
+    port: 5173,
   },
 });
