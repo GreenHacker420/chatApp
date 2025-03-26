@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+// import mongoose from "mongoose";
 
 // const Schema = mongoose.Schema;
 // const tokenSchema = new mongoose.Schema(
@@ -30,6 +30,8 @@ import mongoose from "mongoose";
 // const Token = mongoose.model("Token", tokenSchema);
 // export default Token;
 
+import mongoose from "mongoose";
+
 const tokenSchema = new mongoose.Schema(
   {
     userId: {
@@ -48,15 +50,19 @@ const tokenSchema = new mongoose.Schema(
     },
     expiresAt: {
       type: Date,
-      default: () => Date.now() + 10 * 60 * 1000, // ✅ Token expires in 10 minutes
+      default: () => new Date(Date.now() + 10 * 60 * 1000), // ✅ Token expires in 10 minutes
       required: true,
     },
   },
   { timestamps: true }
 );
 
-// ✅ Ensure token is deleted after expiration
-tokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// ✅ Automatically delete expired tokens (TTL Index)
+tokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 600 });
+
+// ✅ Ensure a user cannot have multiple active tokens of the same type
+tokenSchema.index({ userId: 1, tokenType: 1 }, { unique: true });
 
 const Token = mongoose.model("Token", tokenSchema);
 export default Token;
+
