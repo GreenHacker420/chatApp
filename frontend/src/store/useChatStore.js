@@ -84,6 +84,30 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  // ✅ Delete a message
+  deleteMessage: async (messageId) => {
+    const { selectedUser, messages, socket } = get();
+    if (!selectedUser) return;
+
+    try {
+      await axiosInstance.delete(`/messages/${messageId}`);
+      
+      // Update local state
+      set((state) => ({
+        messages: state.messages.filter((msg) => msg._id !== messageId),
+      }));
+
+      // Notify the other user via socket
+      if (socket) {
+        socket.emit("deleteMessage", { messageId, receiverId: selectedUser._id });
+      }
+
+      toast.success("Message deleted");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete message");
+    }
+  },
+
   // ✅ Real-time updates for incoming messages
   subscribeToMessages: () => {
     const { selectedUser } = get();
@@ -107,6 +131,14 @@ export const useChatStore = create((set, get) => ({
       if (isChatOpen) {
         get().markMessagesAsRead(senderId);
       }
+    });
+
+    // ✅ Handle message deletion events
+    socket.off("messageDeleted");
+    socket.on("messageDeleted", ({ messageId }) => {
+      set((state) => ({
+        messages: state.messages.filter((msg) => msg._id !== messageId),
+      }));
     });
   },
 

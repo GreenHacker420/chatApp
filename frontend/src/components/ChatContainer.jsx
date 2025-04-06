@@ -5,6 +5,8 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
+import { MoreVertical, Trash2 } from "lucide-react";
+import toast from "react-hot-toast";
 
 const ChatContainer = () => {
   const {
@@ -14,11 +16,13 @@ const ChatContainer = () => {
     selectedUser,
     subscribeToMessages,
     markMessagesAsRead,
+    deleteMessage,
   } = useChatStore();
   
   const { authUser, socket } = useAuthStore();
   const messageEndRef = useRef(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
 
   // ✅ Load messages and subscribe to real-time updates
   useEffect(() => {
@@ -81,6 +85,14 @@ const ChatContainer = () => {
     return () => socket.off("messagesRead", handleMessagesRead);
   }, [socket, selectedUser, authUser]);
 
+  // ✅ Handle message deletion
+  const handleDeleteMessage = async (messageId) => {
+    if (window.confirm("Are you sure you want to delete this message?")) {
+      await deleteMessage(messageId);
+      setSelectedMessage(null);
+    }
+  };
+
   if (isMessagesLoading) {
     return (
       <div className="flex-1 flex flex-col overflow-auto">
@@ -121,7 +133,28 @@ const ChatContainer = () => {
               )}
             </div>
 
-            <div className="chat-bubble flex flex-col">
+            <div className="chat-bubble flex flex-col relative group">
+              {message.senderId === authUser._id && (
+                <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="dropdown dropdown-end">
+                    <label tabIndex={0} className="btn btn-xs btn-circle btn-ghost">
+                      <MoreVertical size={14} />
+                    </label>
+                    <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-24">
+                      <li>
+                        <button 
+                          onClick={() => handleDeleteMessage(message._id)}
+                          className="text-error flex items-center gap-1"
+                        >
+                          <Trash2 size={14} />
+                          Delete
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+              
               {message.image && (
                 <img
                   src={message.image}

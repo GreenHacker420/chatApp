@@ -71,6 +71,14 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ✅ Handle message deletion
+  socket.on("deleteMessage", ({ messageId, receiverId }) => {
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("messageDeleted", { messageId });
+    }
+  });
+
   // ✅ Handle active chat status
   socket.on("activeChat", ({ userId, chatId }) => {
     io.emit("userActiveChat", { userId, chatId });
@@ -83,7 +91,8 @@ io.on("connection", (socket) => {
     if (storedUserId) {
       userSocketMap.delete(storedUserId);
       io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
-    }});
+    }
+  });
 
   // ✅ Handle WebSocket reconnections
   socket.on("reconnect_attempt", () => {

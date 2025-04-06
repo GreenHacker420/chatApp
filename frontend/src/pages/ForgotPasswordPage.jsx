@@ -24,7 +24,7 @@ const ForgotPasswordPage = () => {
     setIsLoading(true);
 
     try {
-      const response = await axiosInstance.post("/api/auth/forgot-password", { email });
+      const response = await axiosInstance.post("/auth/forgot-password", { email });
       toast.success(response.data.message);
       navigate("/login");
     } catch (error) {
