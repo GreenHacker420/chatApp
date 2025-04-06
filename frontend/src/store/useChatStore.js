@@ -13,6 +13,10 @@ export const useChatStore = create((set, get) => ({
   hasMoreMessages: true, // ✅ Used for pagination
   currentPage: 1, // ✅ Track the current page of messages
 
+  // Group call state
+  isGroupCallActive: false,
+  activeGroupCall: null,
+
   // ✅ Fetch users with error handling
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -85,12 +89,14 @@ export const useChatStore = create((set, get) => ({
   },
 
   // ✅ Delete a message
-  deleteMessage: async (messageId) => {
+  deleteMessage: async (messageId, deleteForEveryone = false) => {
     const { selectedUser, messages, socket } = get();
     if (!selectedUser) return;
 
     try {
-      await axiosInstance.delete(`/messages/${messageId}`);
+      await axiosInstance.delete(`/messages/${messageId}`, {
+        data: { deleteForEveryone }
+      });
       
       // Update local state
       set((state) => ({
@@ -99,10 +105,10 @@ export const useChatStore = create((set, get) => ({
 
       // Notify the other user via socket
       if (socket) {
-        socket.emit("deleteMessage", { messageId, receiverId: selectedUser._id });
+        socket.emit("deleteMessage", { messageId, receiverId: selectedUser._id, deleteForEveryone });
       }
 
-      toast.success("Message deleted");
+      toast.success(deleteForEveryone ? "Message deleted for everyone" : "Message deleted for you");
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to delete message");
     }
@@ -115,27 +121,15 @@ export const useChatStore = create((set, get) => ({
 
     if (!socket) return;
 
-    socket.off("newMessage"); // ✅ Prevent multiple event listeners
+    socket.off("newMessage");
     socket.on("newMessage", (newMessage) => {
-      const { senderId } = newMessage;
-      const isChatOpen = senderId === selectedUser?._id;
-
       set((state) => ({
-        messages: isChatOpen ? [...state.messages, newMessage] : state.messages,
-        unreadMessages: {
-          ...state.unreadMessages,
-          [senderId]: isChatOpen ? 0 : (state.unreadMessages[senderId] || 0) + 1,
-        },
+        messages: [...state.messages, newMessage],
       }));
-
-      if (isChatOpen) {
-        get().markMessagesAsRead(senderId);
-      }
     });
 
-    // ✅ Handle message deletion events
     socket.off("messageDeleted");
-    socket.on("messageDeleted", ({ messageId }) => {
+    socket.on("messageDeleted", ({ messageId, deleteForEveryone }) => {
       set((state) => ({
         messages: state.messages.filter((msg) => msg._id !== messageId),
       }));
@@ -152,4 +146,20 @@ export const useChatStore = create((set, get) => ({
 
   setSelectedUser: (selectedUser) =>
     set({ selectedUser, messages: [], currentPage: 1, hasMoreMessages: true }),
+
+  // Start group call
+  startGroupCall: (groupId, groupName) => {
+    set({ 
+      isGroupCallActive: true,
+      activeGroupCall: { groupId, groupName }
+    });
+  },
+
+  // End group call
+  endGroupCall: () => {
+    set({ 
+      isGroupCallActive: false,
+      activeGroupCall: null
+    });
+  },
 }));

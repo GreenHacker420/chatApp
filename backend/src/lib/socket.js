@@ -22,6 +22,9 @@ const io = new Server(server, {
 // ✅ Store online users
 const userSocketMap = new Map(); 
 
+// Store active group calls
+const activeGroupCalls = new Map();
+
 export function getReceiverSocketId(userId) {
   return userSocketMap.get(userId);
 }
@@ -72,10 +75,14 @@ io.on("connection", (socket) => {
   });
 
   // ✅ Handle message deletion
-  socket.on("deleteMessage", ({ messageId, receiverId }) => {
-    const receiverSocketId = getReceiverSocketId(receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageDeleted", { messageId });
+  socket.on("deleteMessage", async ({ messageId, receiverId, deleteForEveryone }) => {
+    try {
+      const receiverSocketId = getReceiverSocketId(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("messageDeleted", { messageId, deleteForEveryone });
+      }
+    } catch (error) {
+      console.error("Error in deleteMessage socket event:", error.message);
     }
   });
 
@@ -110,6 +117,38 @@ io.on("connection", (socket) => {
   // ✅ Catch socket errors
   socket.on("error", (err) => {
     console.error("⚠️ Socket error:", err.message);
+  });
+
+  // Handle group call events
+  socket.on("joinGroupCall", ({ groupId, userId }) => {
+    socket.join(`groupCall:${groupId}`);
+    if (!activeGroupCalls.has(groupId)) {
+      activeGroupCalls.set(groupId, new Set());
+    }
+    activeGroupCalls.get(groupId).add(userId);
+    io.to(`groupCall:${groupId}`).emit("participantJoined", { userId });
+  });
+
+  socket.on("startGroupCall", ({ groupId, userId, stream }) => {
+    io.to(`groupCall:${groupId}`).emit("participantJoined", { userId, stream });
+  });
+
+  socket.on("endGroupCall", ({ groupId }) => {
+    if (activeGroupCalls.has(groupId)) {
+      activeGroupCalls.delete(groupId);
+    }
+    io.to(`groupCall:${groupId}`).emit("groupCallEnded");
+  });
+
+  socket.on("leaveGroupCall", ({ groupId, userId }) => {
+    socket.leave(`groupCall:${groupId}`);
+    if (activeGroupCalls.has(groupId)) {
+      activeGroupCalls.get(groupId).delete(userId);
+      if (activeGroupCalls.get(groupId).size === 0) {
+        activeGroupCalls.delete(groupId);
+      }
+    }
+    io.to(`groupCall:${groupId}`).emit("participantLeft", { userId });
   });
 });
 

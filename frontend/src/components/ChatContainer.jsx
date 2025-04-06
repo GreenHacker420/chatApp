@@ -5,8 +5,9 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
-import { MoreVertical, Trash2 } from "lucide-react";
+import { MoreVertical, Trash2, Phone } from "lucide-react";
 import toast from "react-hot-toast";
+import GroupCall from "./GroupCall";
 
 const ChatContainer = () => {
   const {
@@ -14,9 +15,14 @@ const ChatContainer = () => {
     getMessages,
     isMessagesLoading,
     selectedUser,
+    selectedGroup,
     subscribeToMessages,
     markMessagesAsRead,
     deleteMessage,
+    isGroupCallActive,
+    activeGroupCall,
+    startGroupCall,
+    endGroupCall,
   } = useChatStore();
   
   const { authUser, socket } = useAuthStore();
@@ -86,10 +92,18 @@ const ChatContainer = () => {
   }, [socket, selectedUser, authUser]);
 
   // ✅ Handle message deletion
-  const handleDeleteMessage = async (messageId) => {
-    if (window.confirm("Are you sure you want to delete this message?")) {
-      await deleteMessage(messageId);
+  const handleDeleteMessage = async (messageId, deleteForEveryone = false) => {
+    if (window.confirm(deleteForEveryone 
+      ? "Are you sure you want to delete this message for everyone?" 
+      : "Are you sure you want to delete this message for yourself?")) {
+      await deleteMessage(messageId, deleteForEveryone);
       setSelectedMessage(null);
+    }
+  };
+
+  const handleStartGroupCall = () => {
+    if (selectedGroup) {
+      startGroupCall(selectedGroup._id, selectedGroup.name);
     }
   };
 
@@ -105,7 +119,24 @@ const ChatContainer = () => {
 
   return (
     <div className="flex-1 flex flex-col overflow-auto">
-      <ChatHeader />
+      <ChatHeader>
+        {selectedGroup && (
+          <button
+            onClick={handleStartGroupCall}
+            className="btn btn-circle btn-primary btn-sm"
+          >
+            <Phone size={16} />
+          </button>
+        )}
+      </ChatHeader>
+
+      {isGroupCallActive && activeGroupCall && (
+        <GroupCall
+          groupId={activeGroupCall.groupId}
+          groupName={activeGroupCall.groupName}
+          onEndCall={endGroupCall}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
@@ -143,11 +174,20 @@ const ChatContainer = () => {
                     <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-24">
                       <li>
                         <button 
-                          onClick={() => handleDeleteMessage(message._id)}
+                          onClick={() => handleDeleteMessage(message._id, false)}
                           className="text-error flex items-center gap-1"
                         >
                           <Trash2 size={14} />
-                          Delete
+                          Delete for me
+                        </button>
+                      </li>
+                      <li>
+                        <button 
+                          onClick={() => handleDeleteMessage(message._id, true)}
+                          className="text-error flex items-center gap-1"
+                        >
+                          <Trash2 size={14} />
+                          Delete for everyone
                         </button>
                       </li>
                     </ul>

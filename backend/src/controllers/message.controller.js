@@ -8,25 +8,33 @@ export const getMessages = async (req, res) => {
   try {
     const { id: userToChatId } = req.params;
     const myId = req.user._id;
-    const { page = 1, limit = 500 } = req.query;
+    const { page = 1, limit = 50 } = req.query;
 
     const messages = await Message.find({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
+      $and: [
+        { isDeletedForEveryone: false },
+        { $or: [{ deletedFor: { $ne: myId } }, { deletedFor: { $exists: false } }] }
+      ]
     })
-      .sort({ createdAt: 1 }) // ✅ Ensures messages load in correct order
+      .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .lean(); // ✅ Improves performance
+      .populate("senderId", "fullName profilePic")
+      .populate("receiverId", "fullName profilePic");
 
-    // ✅ Fix: Define `totalMessages` before using it
     const totalMessages = await Message.countDocuments({
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
+      $and: [
+        { isDeletedForEveryone: false },
+        { $or: [{ deletedFor: { $ne: myId } }, { deletedFor: { $exists: false } }] }
+      ]
     });
 
     // ✅ Mark unread messages as read when fetching
@@ -43,12 +51,12 @@ export const getMessages = async (req, res) => {
 
     res.status(200).json({
       messages,
-      totalMessages, // ✅ Now correctly defined before use
+      totalMessages,
       totalPages: Math.ceil(totalMessages / limit),
-      currentPage: Number(page),
+      currentPage: parseInt(page),
     });
   } catch (error) {
-    console.log("Error in getMessages controller:", error.message);
+    console.error("Error in getMessages:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -168,10 +176,11 @@ export const markMessagesAsRead = async (req, res) => {
   }
 };
 
-// ✅ Delete Message
+// Delete message for me or for everyone
 export const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
+    const { deleteForEveryone } = req.body;
     const userId = req.user._id;
 
     // Find the message
@@ -186,13 +195,22 @@ export const deleteMessage = async (req, res) => {
       return res.status(403).json({ error: "You can only delete your own messages" });
     }
 
-    // Delete the message
-    await Message.findByIdAndDelete(messageId);
+    if (deleteForEveryone) {
+      // Delete for everyone
+      message.isDeletedForEveryone = true;
+      await message.save();
 
-    // Notify the receiver that a message was deleted
-    const receiverSocketId = getReceiverSocketId(message.receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("messageDeleted", { messageId });
+      // Notify all receivers that a message was deleted
+      const receiverSocketId = getReceiverSocketId(message.receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("messageDeleted", { messageId, deleteForEveryone: true });
+      }
+    } else {
+      // Delete for me only
+      if (!message.deletedFor.includes(userId)) {
+        message.deletedFor.push(userId);
+        await message.save();
+      }
     }
 
     res.status(200).json({ message: "Message deleted successfully" });
