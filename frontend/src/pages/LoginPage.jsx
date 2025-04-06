@@ -128,6 +128,12 @@ const LoginPage = () => {
                 "Sign in"
               )}
             </button>
+
+            <div className="text-center mt-4">
+              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+                Forgot Password?
+              </Link>
+            </div>
           </form>
 
           {/* ✅ Google Login Button */}

@@ -8,6 +8,8 @@ import {
   updateProfile,
   verifyEmail,
   resendVerificationEmail,
+  forgotPassword,
+  resetPassword
 } from "../controllers/auth.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimit } from "express-rate-limit"; // ✅ Prevents spam on email verification
@@ -29,6 +31,10 @@ router.post("/login", login);
 router.post("/logout", logout);
 router.get("/verify/:id/:token", verifyEmail);
 router.post("/resend-verification", emailRateLimiter, resendVerificationEmail);
+
+// ✅ Forgot Password
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 // ✅ Google OAuth Routes
 router.get("/google", passport.authenticate("google", { scope: ["openid", "profile", "email"] }));

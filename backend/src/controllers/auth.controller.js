@@ -241,3 +241,108 @@ export const verifyEmail = async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+export const forgotPassword = async (req, res) => {
+  // try {
+  //   const { email } = req.body;
+  //   const user = await User.findOne({ email });
+
+  //   if (!user) {
+  //     return res.status(400).json({ message: "User not found." });
+  //   }
+
+  //   // Delete any existing password reset token
+  //   await Token.findOneAndDelete({ userId: user._id, tokenType: "passwordReset" });
+
+  //   // Generate a new token
+  //   const rawToken = crypto.randomBytes(32).toString("hex");
+  //   const hashedToken = await bcrypt.hash(rawToken, 10);
+
+  //   await new Token({
+  //     userId: user._id,
+  //     token: hashedToken,
+  //     tokenType: "passwordReset",
+  //     expiresAt: Date.now() + 15 * 60 * 1000, // Expires in 15 minutes
+  //   }).save();
+
+  //   // Send email
+  //   const resetUrl = `${process.env.CLIENT_URL}/reset-password/${rawToken}`;
+  //   await sendEmail({
+  //     email: user.email,
+  //     subject: "Password Reset Request",
+  //     text: `Click here to reset your password: ${resetUrl}`,
+  //   });
+
+  //   res.status(200).json({ message: "Password reset email sent." });
+  // } catch (error) {
+  //   console.error("Forgot Password Error:", error.message);
+  //   res.status(500).json({ message: "Internal Server Error" });
+  // }
+  
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "User not found" });
+
+    const message = await sendPasswordResetEmail(user);
+    res.status(200).json({ message });
+  } catch (error) {
+    console.error("Forgot Password Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+;
+
+export const resetPassword = async (req, res) => {
+  // try {
+  //   const { token } = req.params;
+  //   const { newPassword } = req.body;
+
+  //   // Find token and validate
+  //   const tokenDoc = await Token.findOne({ tokenType: "passwordReset" });
+  //   if (!tokenDoc) {
+  //     return res.status(400).json({ message: "Invalid or expired token." });
+  //   }
+
+  //   const isValid = await bcrypt.compare(token, tokenDoc.token);
+  //   if (!isValid) {
+  //     return res.status(400).json({ message: "Invalid or expired token." });
+  //   }
+
+  //   // Update user password
+  //   const user = await User.findById(tokenDoc.userId);
+  //   if (!user) {
+  //     return res.status(400).json({ message: "User not found." });
+  //   }
+
+  //   user.password = await bcrypt.hash(newPassword, 10);
+  //   await user.save();
+  //   await Token.findByIdAndDelete(tokenDoc._id);
+
+  //   res.status(200).json({ message: "Password reset successful." });
+  // } catch (error) {
+  //   console.error("Reset Password Error:", error.message);
+  //   res.status(500).json({ message: "Internal Server Error" });
+  // }
+  try {
+    const { userId, token, password } = req.body;
+    const tokenDoc = await Token.findOne({ userId, tokenType: "passwordReset" });
+    if (!tokenDoc) return res.status(400).json({ message: "Invalid or expired token" });
+
+    const isValid = await bcrypt.compare(token, tokenDoc.token);
+    if (!isValid) return res.status(400).json({ message: "Invalid or expired token" });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(400).json({ message: "User not found" });
+
+    user.password = await bcrypt.hash(password, 10);
+    await user.save();
+    await Token.findByIdAndDelete(tokenDoc._id);
+
+    res.status(200).json({ message: "Password has been reset successfully" });
+  } catch (error) {
+    console.error("Reset Password Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
