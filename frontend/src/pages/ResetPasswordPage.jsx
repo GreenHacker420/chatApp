@@ -9,7 +9,7 @@ const ResetPasswordPage = () => {
   const { token } = useParams();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
-    password: "",
+    newPassword: "",
     confirmPassword: "",
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -18,17 +18,17 @@ const ResetPasswordPage = () => {
   const handleResetPassword = async (e) => {
     e.preventDefault();
     
-    if (!formData.password || !formData.confirmPassword) {
+    if (!formData.newPassword || !formData.confirmPassword) {
       toast.error("Please fill in all fields");
       return;
     }
 
-    if (formData.password.length < 6) {
+    if (formData.newPassword.length < 6) {
       toast.error("Password must be at least 6 characters long");
       return;
     }
 
-    if (formData.password !== formData.confirmPassword) {
+    if (formData.newPassword !== formData.confirmPassword) {
       toast.error("Passwords do not match");
       return;
     }
@@ -38,7 +38,7 @@ const ResetPasswordPage = () => {
     try {
       const response = await axiosInstance.post("/auth/reset-password", {
         token,
-        password: formData.password,
+        newPassword: formData.newPassword,
       });
 
       toast.success(response.data.message);
@@ -75,8 +75,8 @@ const ResetPasswordPage = () => {
                   type={showPassword ? "text" : "password"}
                   className="input input-bordered w-full pl-10"
                   placeholder="Enter new password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  value={formData.newPassword}
+                  onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
                   required
                 />
                 <button
