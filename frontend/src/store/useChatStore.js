@@ -150,7 +150,10 @@ export const useChatStore = create((set, get) => ({
     const { selectedUser } = get();
     const socket = useAuthStore.getState().socket;
 
-    if (!socket) return;
+    if (!socket) {
+      console.warn("⚠️ Socket not available for message subscription");
+      return;
+    }
 
     // Debounce message updates
     let messageUpdateTimeout;
@@ -239,7 +242,7 @@ export const useChatStore = create((set, get) => ({
     }
 
     if (!socket) {
-      toast.error("Unable to start call. Please try again.");
+      toast.error("Unable to start call. Socket connection not available.");
       return;
     }
 
@@ -289,16 +292,18 @@ export const useChatStore = create((set, get) => ({
   // ✅ Handle incoming call
   handleIncomingCall: (callData) => {
     const { activeCall, isCallActive } = get();
+    const socket = useAuthStore.getState().socket;
     
     // Prevent handling new calls if already in a call
     if (activeCall || isCallActive) {
-      const socket = useAuthStore.getState().socket;
       if (socket) {
         socket.emit("rejectCall", {
           callerId: callData.callerId,
           receiverId: useAuthStore.getState().authUser._id,
           reason: "busy"
         });
+      } else {
+        console.warn("⚠️ Socket not available for rejecting call");
       }
       return;
     }
@@ -317,7 +322,13 @@ export const useChatStore = create((set, get) => ({
     const { incomingCallData, activeCall } = get();
     const socket = useAuthStore.getState().socket;
     
-    if (!incomingCallData || !socket || activeCall) return;
+    if (!incomingCallData || !socket || activeCall) {
+      if (!socket) {
+        console.warn("⚠️ Socket not available for accepting call");
+        toast.error("Unable to accept call. Connection issue.");
+      }
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -361,7 +372,7 @@ export const useChatStore = create((set, get) => ({
       const { activeCall } = get();
       const socket = useAuthStore.getState().socket;
       
-      if (!activeCall || !socket) return;
+      if (!activeCall) return;
 
       // Clear any pending end call timeout
       if (endCallTimeout) {
@@ -373,10 +384,14 @@ export const useChatStore = create((set, get) => ({
         activeCall.stream.getTracks().forEach(track => track.stop());
       }
 
-      // Emit end call event
-      socket.emit("endCall", {
-        userId: activeCall.userId
-      });
+      // Emit end call event if socket is available
+      if (socket) {
+        socket.emit("endCall", {
+          userId: activeCall.userId
+        });
+      } else {
+        console.warn("⚠️ Socket not available for ending call");
+      }
 
       // Debounce the state update
       endCallTimeout = setTimeout(() => {
@@ -387,4 +402,29 @@ export const useChatStore = create((set, get) => ({
       }, 100);
     };
   })(),
+
+  // ✅ Reject call
+  rejectCall: () => {
+    const { incomingCallData } = get();
+    const socket = useAuthStore.getState().socket;
+    
+    if (!incomingCallData) return;
+    
+    // Emit reject call event if socket is available
+    if (socket) {
+      socket.emit("rejectCall", {
+        callerId: incomingCallData.callerId,
+        receiverId: useAuthStore.getState().authUser._id,
+        reason: "rejected"
+      });
+    } else {
+      console.warn("⚠️ Socket not available for rejecting call");
+    }
+    
+    // Clear incoming call state
+    set({
+      isIncomingCall: false,
+      incomingCallData: null
+    });
+  },
 }));

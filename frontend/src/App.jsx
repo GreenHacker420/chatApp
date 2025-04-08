@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { useAuthStore } from "./store/useAuthStore";
 import { useChatStore } from "./store/useChatStore";
@@ -17,40 +17,38 @@ const App = () => {
   const { isCallActive, isIncomingCall } = useChatStore();
 
   return (
-    <Router>
-      <div>
-        <Toaster position="top-center" reverseOrder={false} />
-        {authUser && <Navbar />}
-        
-        <Routes>
-          <Route
-            path="/"
-            element={authUser ? <HomePage /> : <Navigate to="/login" />}
-          />
-          <Route
-            path="/login"
-            element={!authUser ? <LoginPage /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/signup"
-            element={!authUser ? <SignUpPage /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/settings"
-            element={authUser ? <SettingsPage /> : <Navigate to="/login" />}
-          />
-          <Route
-            path="/profile"
-            element={authUser ? <ProfilePage /> : <Navigate to="/login" />}
-          />
-          <Route path="/auth/google/success" element={<GoogleAuthSuccess />} />
-        </Routes>
+    <div>
+      <Toaster position="top-center" reverseOrder={false} />
+      {authUser && <Navbar />}
+      
+      <Routes>
+        <Route
+          path="/"
+          element={authUser ? <HomePage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/login"
+          element={!authUser ? <LoginPage /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/signup"
+          element={!authUser ? <SignUpPage /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/settings"
+          element={authUser ? <SettingsPage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/profile"
+          element={authUser ? <ProfilePage /> : <Navigate to="/login" />}
+        />
+        <Route path="/auth/google/success" element={<GoogleAuthSuccess />} />
+      </Routes>
 
-        {/* Call-related components */}
-        {isCallActive && <CallInterface />}
-        {isIncomingCall && <IncomingCallNotification />}
-      </div>
-    </Router>
+      {/* Call-related components */}
+      {isCallActive && <CallInterface />}
+      {isIncomingCall && <IncomingCallNotification />}
+    </div>
   );
 };
 

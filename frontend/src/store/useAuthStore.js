@@ -139,20 +139,37 @@ export const useAuthStore = create((set, get) => ({
     }
 
     console.log("🔗 Connecting socket...");
-    const newSocket = io(BASE_URL, {
-      query: { userId: authUser._id },
-      withCredentials: true,
-      transports: ["websocket"],
-    });
+    try {
+      const newSocket = io(BASE_URL, {
+        query: { userId: authUser._id },
+        withCredentials: true,
+        transports: ["websocket"],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 10000
+      });
 
-    set({ socket: newSocket });
+      // Set up error handling
+      newSocket.on("connect_error", (error) => {
+        console.error("🔴 Socket connection error:", error.message);
+      });
 
-    newSocket.on("connect", () => console.log("✅ Socket connected:", newSocket.id));
-    newSocket.on("getOnlineUsers", (userIds) => {
-      console.log("🟢 Received Online Users:", userIds);
-      set({ onlineUsers: [...userIds] }); // Forces Zustand to update state
-    });
-    newSocket.on("disconnect", () => console.log("🔴 Socket disconnected"));
+      newSocket.on("error", (error) => {
+        console.error("🔴 Socket error:", error);
+      });
+
+      set({ socket: newSocket });
+
+      newSocket.on("connect", () => console.log("✅ Socket connected:", newSocket.id));
+      newSocket.on("getOnlineUsers", (userIds) => {
+        console.log("🟢 Received Online Users:", userIds);
+        set({ onlineUsers: [...userIds] }); // Forces Zustand to update state
+      });
+      newSocket.on("disconnect", () => console.log("🔴 Socket disconnected"));
+    } catch (error) {
+      console.error("🔴 Failed to create socket connection:", error);
+    }
   },
 
   // ✅ WebSocket Disconnection
@@ -160,7 +177,12 @@ export const useAuthStore = create((set, get) => ({
     const { socket } = get();
     if (socket?.connected) {
       console.log("🔌 Disconnecting socket...");
-      socket.disconnect();
+      try {
+        socket.disconnect();
+        set({ socket: null });
+      } catch (error) {
+        console.error("🔴 Error disconnecting socket:", error);
+      }
     }
   },
 }));
