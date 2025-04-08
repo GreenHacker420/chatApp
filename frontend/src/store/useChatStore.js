@@ -17,6 +17,12 @@ export const useChatStore = create((set, get) => ({
   isGroupCallActive: false,
   activeGroupCall: null,
 
+  // Call state
+  isCallActive: false,
+  activeCall: null,
+  isIncomingCall: false,
+  incomingCallData: null,
+
   // ✅ Fetch users with error handling
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -45,13 +51,29 @@ export const useChatStore = create((set, get) => ({
 
     try {
       const res = await axiosInstance.get(`/messages/${userId}?page=${page}`);
-      set((state) => ({
-        messages: page === 1 ? res.data.messages : [...state.messages, ...res.data.messages], // ✅ Append messages for infinite scrolling
-        hasMoreMessages: res.data.messages.length > 0,
-        currentPage: page,
-      }));
+      
+      set((state) => {
+        // If it's the first page, replace all messages
+        if (page === 1) {
+          return {
+            messages: res.data.messages,
+            hasMoreMessages: res.data.messages.length > 0,
+            currentPage: page,
+          };
+        }
 
-      // ✅ Mark messages as read when opening the chat
+        // For subsequent pages, filter out any duplicate messages before adding new ones
+        const existingMessageIds = new Set(state.messages.map(msg => msg._id));
+        const newMessages = res.data.messages.filter(msg => !existingMessageIds.has(msg._id));
+
+        return {
+          messages: [...state.messages, ...newMessages],
+          hasMoreMessages: newMessages.length > 0,
+          currentPage: page,
+        };
+      });
+
+      // Mark messages as read when opening the chat
       if (page === 1) {
         await get().markMessagesAsRead(userId);
       }
@@ -82,7 +104,16 @@ export const useChatStore = create((set, get) => ({
 
     try {
       const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: [...messages, res.data] });
+      
+      // Update messages state only if the message isn't already in the list
+      set((state) => {
+        const messageExists = state.messages.some(msg => msg._id === res.data._id);
+        if (messageExists) return state;
+
+        return {
+          messages: [...state.messages, res.data],
+        };
+      });
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to send message");
     }
@@ -121,11 +152,28 @@ export const useChatStore = create((set, get) => ({
 
     if (!socket) return;
 
+    // Debounce message updates
+    let messageUpdateTimeout;
+
     socket.off("newMessage");
     socket.on("newMessage", (newMessage) => {
-      set((state) => ({
-        messages: [...state.messages, newMessage],
-      }));
+      // Clear any pending updates
+      if (messageUpdateTimeout) {
+        clearTimeout(messageUpdateTimeout);
+      }
+
+      // Debounce the state update
+      messageUpdateTimeout = setTimeout(() => {
+        set((state) => {
+          // Prevent duplicate messages
+          const messageExists = state.messages.some(msg => msg._id === newMessage._id);
+          if (messageExists) return state;
+
+          return {
+            messages: [...state.messages, newMessage],
+          };
+        });
+      }, 100);
     });
 
     socket.off("messageDeleted");
@@ -134,6 +182,13 @@ export const useChatStore = create((set, get) => ({
         messages: state.messages.filter((msg) => msg._id !== messageId),
       }));
     });
+
+    // Cleanup on unsubscribe
+    return () => {
+      if (messageUpdateTimeout) {
+        clearTimeout(messageUpdateTimeout);
+      }
+    };
   },
 
   // ✅ Handles infinite scrolling (load more messages)
@@ -144,8 +199,16 @@ export const useChatStore = create((set, get) => ({
     await get().getMessages(selectedUser._id, currentPage + 1);
   },
 
-  setSelectedUser: (selectedUser) =>
-    set({ selectedUser, messages: [], currentPage: 1, hasMoreMessages: true }),
+  setSelectedUser: (selectedUser) => {
+    // Clear messages before loading new ones to prevent flickering
+    set({ 
+      selectedUser, 
+      messages: [], 
+      currentPage: 1, 
+      hasMoreMessages: true,
+      isMessagesLoading: true // Set loading state immediately
+    });
+  },
 
   // Start group call
   startGroupCall: (groupId, groupName) => {
@@ -162,4 +225,166 @@ export const useChatStore = create((set, get) => ({
       activeGroupCall: null
     });
   },
+
+  // ✅ Start a call
+  startCall: async (userId, isVideo = false, isUserOnline = false) => {
+    const socket = useAuthStore.getState().socket;
+    const authUser = useAuthStore.getState().authUser;
+    const { activeCall } = get();
+    
+    // Prevent multiple call attempts
+    if (activeCall) {
+      toast.error("You're already in a call");
+      return;
+    }
+
+    if (!socket) {
+      toast.error("Unable to start call. Please try again.");
+      return;
+    }
+
+    try {
+      // Request media permissions first
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: isVideo,
+        audio: true
+      });
+
+      // Set call state before emitting to prevent flickering
+      set({
+        isCallActive: true,
+        activeCall: {
+          userId,
+          isVideo,
+          stream,
+          isOutgoing: true,
+          isReceiverOnline: isUserOnline,
+          startTime: Date.now() // Add timestamp to track call duration
+        }
+      });
+
+      // Emit call request only if user is online
+      if (isUserOnline) {
+        socket.emit("initiateCall", {
+          callerId: authUser._id,
+          callerName: authUser.fullName,
+          receiverId: userId,
+          isVideo
+        });
+        toast.success("Ringing...");
+      } else {
+        toast.info("User is offline. They will be notified when they come online.");
+      }
+    } catch (error) {
+      console.error("Error starting call:", error);
+      toast.error("Failed to access camera/microphone");
+      // Clean up call state if media access fails
+      set({
+        isCallActive: false,
+        activeCall: null
+      });
+    }
+  },
+
+  // ✅ Handle incoming call
+  handleIncomingCall: (callData) => {
+    const { activeCall, isCallActive } = get();
+    
+    // Prevent handling new calls if already in a call
+    if (activeCall || isCallActive) {
+      const socket = useAuthStore.getState().socket;
+      if (socket) {
+        socket.emit("rejectCall", {
+          callerId: callData.callerId,
+          receiverId: useAuthStore.getState().authUser._id,
+          reason: "busy"
+        });
+      }
+      return;
+    }
+
+    set({
+      isIncomingCall: true,
+      incomingCallData: {
+        ...callData,
+        receivedAt: Date.now() // Add timestamp for call notification
+      }
+    });
+  },
+
+  // ✅ Accept call
+  acceptCall: async () => {
+    const { incomingCallData, activeCall } = get();
+    const socket = useAuthStore.getState().socket;
+    
+    if (!incomingCallData || !socket || activeCall) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: incomingCallData.isVideo,
+        audio: true
+      });
+
+      // Set call state before emitting to prevent flickering
+      set({
+        isCallActive: true,
+        activeCall: {
+          userId: incomingCallData.callerId,
+          isVideo: incomingCallData.isVideo,
+          stream,
+          isOutgoing: false,
+          startTime: Date.now()
+        },
+        isIncomingCall: false,
+        incomingCallData: null
+      });
+
+      socket.emit("acceptCall", {
+        callerId: incomingCallData.callerId,
+        receiverId: useAuthStore.getState().authUser._id
+      });
+    } catch (error) {
+      console.error("Error accepting call:", error);
+      toast.error("Failed to access camera/microphone");
+      set({
+        isIncomingCall: false,
+        incomingCallData: null
+      });
+    }
+  },
+
+  // ✅ End call with debounce
+  endCall: (() => {
+    let endCallTimeout;
+    
+    return () => {
+      const { activeCall } = get();
+      const socket = useAuthStore.getState().socket;
+      
+      if (!activeCall || !socket) return;
+
+      // Clear any pending end call timeout
+      if (endCallTimeout) {
+        clearTimeout(endCallTimeout);
+      }
+
+      // Stop all media tracks
+      if (activeCall.stream) {
+        activeCall.stream.getTracks().forEach(track => track.stop());
+      }
+
+      // Emit end call event
+      socket.emit("endCall", {
+        userId: activeCall.userId
+      });
+
+      // Debounce the state update
+      endCallTimeout = setTimeout(() => {
+        set({
+          isCallActive: false,
+          activeCall: null
+        });
+      }, 100);
+    };
+  })(),
 }));
