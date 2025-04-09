@@ -49,8 +49,6 @@ export const connectDB = async () => {
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       maxPoolSize: 10,
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       autoIndex: process.env.NODE_ENV !== "production", // Disable auto-indexing in production
     });
 
