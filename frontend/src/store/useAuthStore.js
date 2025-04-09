@@ -21,7 +21,10 @@ export const useAuthStore = create((set, get) => ({
   checkAuth: async () => {
     set({ isCheckingAuth: true });
     try {
+      console.log("🔹 Checking authentication status...");
       const response = await axiosInstance.get("/auth/check", { withCredentials: true }); // ✅ Ensure cookies are sent
+      console.log("🔹 Auth check response:", response);
+      
       if (response.data) {
         console.log("✅ Authenticated User:", response.data);
         set({ authUser: response.data });
@@ -35,6 +38,14 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       console.warn("⚠️ Auth check failed:", error.response?.data?.message || error.message);
       set({ authUser: null });
+      
+      // If the error is due to network issues, try again after a short delay
+      if (!error.response) {
+        console.log("🔹 Network error, retrying after delay...");
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return get().checkAuth();
+      }
+      
       throw error; // Re-throw to be caught by the component
     } finally {
       set({ isCheckingAuth: false });
@@ -47,6 +58,7 @@ export const useAuthStore = create((set, get) => ({
       
       // First check if we have a user session
       const response = await axiosInstance.get("/auth/check", { withCredentials: true });
+      console.log("🔹 Auth check response:", response);
       
       if (response.data) {
         console.log("✅ User session found:", response.data);
@@ -59,6 +71,12 @@ export const useAuthStore = create((set, get) => ({
       }
     } catch (error) {
       console.error("Google Auth Error:", error);
+      // If the error is due to network issues, try again after a short delay
+      if (!error.response) {
+        console.log("🔹 Network error, retrying after delay...");
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return get().handleGoogleAuthSuccess();
+      }
       throw error; // Re-throw to be caught by the component
     }
   },

@@ -28,17 +28,18 @@ import toast from "react-hot-toast";
 
 // Get the base URL from environment variables
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
+console.log("🔹 Using API URL:", BASE_URL);
 
 export const axiosInstance = axios.create({
   baseURL: BASE_URL,
   withCredentials: true, // ✅ Allows sending cookies if backend supports it
-  timeout: 10000, // 10 seconds timeout
+  timeout: 15000, // 15 seconds timeout
 });
 
 // Add request interceptor for debugging
 axiosInstance.interceptors.request.use(
   (config) => {
-    console.log(`🔹 ${config.method.toUpperCase()} request to ${config.url}`);
+    console.log(`🔹 ${config.method.toUpperCase()} request to ${config.url}`, config);
     return config;
   },
   (error) => {
@@ -50,7 +51,7 @@ axiosInstance.interceptors.request.use(
 // Add response interceptor for debugging
 axiosInstance.interceptors.response.use(
   (response) => {
-    console.log(`✅ Response from ${response.config.url}:`, response.status);
+    console.log(`✅ Response from ${response.config.url}:`, response.status, response.data);
     return response;
   },
   (error) => {
