@@ -32,14 +32,21 @@ console.log("🔹 Using API URL:", BASE_URL);
 
 export const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true, // Allows sending cookies
-  timeout: 15000, // 15 seconds timeout
+  withCredentials: true,
+  timeout: 15000,
 });
 
 // Add request interceptor for debugging
 axiosInstance.interceptors.request.use(
   (config) => {
-    console.log(`🔹 ${config.method.toUpperCase()} request to ${config.url}`, config);
+    // Remove trailing slash from baseURL if it exists
+    if (config.baseURL.endsWith('/')) {
+      config.baseURL = config.baseURL.slice(0, -1);
+    }
+    
+    // Log the full URL being requested
+    const fullUrl = `${config.baseURL}${config.url}`;
+    console.log(`🔹 ${config.method.toUpperCase()} request to ${fullUrl}`, config);
     return config;
   },
   (error) => {
@@ -57,7 +64,6 @@ axiosInstance.interceptors.response.use(
   (error) => {
     console.error("🔴 Response error:", error.response?.status, error.response?.data);
     
-    // Show error toast for network errors
     if (!error.response) {
       toast.error("Network error. Please check your connection.");
     }

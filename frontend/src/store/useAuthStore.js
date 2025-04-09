@@ -2,8 +2,7 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
-
-const SOCKET_URL = "https://gutargu.greenhacker.tech/api/auth/"
+const SOCKET_URL = "https://gutargu.greenhacker.tech" || "http://localhost:5001";
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
@@ -22,7 +21,7 @@ export const useAuthStore = create((set, get) => ({
     set({ isCheckingAuth: true });
     try {
       console.log("🔹 Checking authentication status...");
-      const response = await axiosInstance.get("/check", { withCredentials: true }); // ✅ Ensure cookies are sent
+      const response = await axiosInstance.get("/api/auth/check", { withCredentials: true }); // ✅ Ensure cookies are sent
       console.log("🔹 Auth check response:", response);
       
       if (response.data) {
@@ -57,7 +56,7 @@ export const useAuthStore = create((set, get) => ({
       console.log("🔹 Google Auth Success: Fetching user data...");
       
       // First check if we have a user session
-      const response = await axiosInstance.get("/check", { withCredentials: true });
+      const response = await axiosInstance.get("/api/auth/check", { withCredentials: true });
       console.log("🔹 Auth check response:", response);
       
       if (response.data) {
@@ -90,7 +89,7 @@ export const useAuthStore = create((set, get) => ({
 
     set({ isSigningUp: true });
     try {
-      const res = await axiosInstance.post("/signup", data, { withCredentials: true });
+      const res = await axiosInstance.post("/api/auth/signup", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Account created successfully");
       get().connectSocket();
@@ -111,7 +110,7 @@ export const useAuthStore = create((set, get) => ({
   
     set({ isLoggingIn: true });
     try {
-      const res = await axiosInstance.post("/login", data, { withCredentials: true });
+      const res = await axiosInstance.post("/api/auth/login", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Logged in successfully");
       get().connectSocket();
@@ -132,12 +131,12 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     set({ isLoggingOut: true });
     try {
-      await axiosInstance.post("/logout", {}, { withCredentials: true });
+      await axiosInstance.post("/api/auth/logout", {}, { withCredentials: true });
       get().disconnectSocket();
       localStorage.removeItem("jwt");
       set({ authUser: null, socket: null, onlineUsers: [] });
       toast.success("Logged out successfully");
-      window.location.href = "/login";
+      window.location.href = "/api/auth/login";
     } catch (error) {
       console.error("Logout failed:", error.response?.data?.message || error.message);
       toast.error("Logout failed, please try again");
@@ -150,7 +149,7 @@ export const useAuthStore = create((set, get) => ({
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
-      const res = await axiosInstance.put("/update-profile", data, { withCredentials: true });
+      const res = await axiosInstance.put("/api/auth/update-profile", data, { withCredentials: true });
       set({ authUser: res.data });
       toast.success("Profile updated successfully");
     } catch (error) {
@@ -165,9 +164,22 @@ export const useAuthStore = create((set, get) => ({
   connectSocket: () => {
     const { authUser, socket } = get();
     if (authUser && !socket) {
+      console.log("🔹 Connecting to socket at:", SOCKET_URL);
       const newSocket = io(SOCKET_URL, {
         withCredentials: true,
+        transports: ['websocket'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
       });
+
+      newSocket.on('connect', () => {
+        console.log('✅ Socket connected successfully');
+      });
+
+      newSocket.on('connect_error', (error) => {
+        console.error('❌ Socket connection error:', error);
+      });
+
       set({ socket: newSocket });
     }
   },
