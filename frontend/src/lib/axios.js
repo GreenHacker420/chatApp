@@ -27,7 +27,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 
 // Get the base URL from environment variables
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api/auth";
 console.log("🔹 Using API URL:", BASE_URL);
 
 export const axiosInstance = axios.create({

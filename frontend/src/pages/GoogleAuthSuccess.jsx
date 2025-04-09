@@ -16,12 +16,7 @@ const GoogleAuthSuccess = () => {
         setError(null);
         console.log("🔹 Starting Google authentication process...");
         
-        // First try to handle Google auth success
-        console.log("🔹 Calling handleGoogleAuthSuccess...");
-        const userData = await handleGoogleAuthSuccess();
-        console.log("✅ handleGoogleAuthSuccess completed:", userData);
-        
-        // Then check auth status
+        // First check auth status
         console.log("🔹 Calling checkAuth...");
         const authData = await checkAuth();
         console.log("✅ checkAuth completed:", authData);
@@ -29,37 +24,44 @@ const GoogleAuthSuccess = () => {
         if (authData) {
           console.log("✅ Google authentication successful, redirecting to home...");
           toast.success("Google login successful!");
-          
-          // Force a small delay to ensure state updates are processed
-          setTimeout(() => {
-            console.log("🔹 Navigating to home page...");
-            navigate("/", { replace: true });
-          }, 500);
+          navigate("/", { replace: true });
         } else {
+          console.error("❌ No auth data returned");
           throw new Error("Authentication failed - no user data returned");
         }
       } catch (error) {
         console.error("❌ Google authentication failed:", error);
         setError(error.message || "Authentication failed");
         toast.error("Google login failed. Please try again.");
-        
-        // Force a small delay before redirecting to login
-        setTimeout(() => {
-          navigate("/login", { replace: true });
-        }, 1000);
+        navigate("/login", { replace: true });
       } finally {
         setIsLoading(false);
       }
     };
 
     authenticateUser();
-  }, [navigate, checkAuth, handleGoogleAuthSuccess]);
+  }, [navigate, checkAuth]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen">
+        <p className="text-error mb-4">{error}</p>
+        <button 
+          className="btn btn-primary"
+          onClick={() => navigate("/login")}
+        >
+          Return to Login
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-screen">
       <div className="loading loading-spinner loading-lg mb-4"></div>
-      <p className="text-lg">{isLoading ? "Authenticating..." : "Redirecting..."}</p>
-      {error && <p className="text-error mt-2">{error}</p>}
+      <p className="text-lg">
+        {isLoading ? "Authenticating..." : "Redirecting..."}
+      </p>
     </div>
   );
 };
