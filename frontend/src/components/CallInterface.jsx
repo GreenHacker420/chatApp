@@ -1,15 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, Plus } from "lucide-react";
 import toast from "react-hot-toast";
+import { socket } from '../socket';
 
 const CallInterface = () => {
-  const { activeCall, endCall } = useChatStore();
-  const { selectedUser } = useChatStore();
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(!activeCall?.isVideo);
+  const {
+    activeCall,
+    endCall,
+    toggleMute,
+    toggleVideo,
+    isMuted,
+    isVideoOff,
+    groupCallParticipants,
+    addGroupCallParticipant,
+    removeGroupCallParticipant,
+    handleGroupCallInvitation,
+    acceptGroupCallInvitation,
+    rejectGroupCallInvitation,
+    users
+  } = useChatStore();
+  const { selectedUser, socket: authSocket } = useAuthStore();
   const [callDuration, setCallDuration] = useState(0);
+  const [showAddParticipant, setShowAddParticipant] = useState(false);
+  const [selectedParticipants, setSelectedParticipants] = useState([]);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const durationIntervalRef = useRef(null);
@@ -40,37 +55,55 @@ const CallInterface = () => {
     }
 
     // Start call duration timer if call is connected
-    if (activeCall?.startTime) {
+    if (activeCall?.connectedAt) {
       durationIntervalRef.current = setInterval(() => {
-        const duration = Math.floor((Date.now() - activeCall.startTime) / 1000);
+        const duration = Math.floor((Date.now() - activeCall.connectedAt) / 1000);
         setCallDuration(duration);
       }, 1000);
     }
 
     return cleanup;
-  }, [activeCall?.stream, activeCall?.startTime, cleanup]);
+  }, [activeCall?.stream, activeCall?.connectedAt, cleanup]);
 
-  const toggleMute = useCallback(() => {
-    if (activeCall?.stream) {
-      const audioTrack = activeCall.stream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMuted(!isMuted);
-    }
-  }, [activeCall?.stream, isMuted]);
+  useEffect(() => {
+    if (!activeCall) return;
 
-  const toggleVideo = useCallback(() => {
-    if (activeCall?.stream && activeCall.isVideo) {
-      const videoTrack = activeCall.stream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsVideoOff(!isVideoOff);
-    }
-  }, [activeCall?.stream, activeCall?.isVideo, isVideoOff]);
+    socket.on('groupCallInvitation', (invitation) => {
+      handleGroupCallInvitation(invitation);
+    });
 
-  const handleEndCall = useCallback(() => {
-    cleanup();
-    endCall();
-    toast.success("Call ended");
-  }, [cleanup, endCall]);
+    socket.on('participantJoined', (participant) => {
+      addGroupCallParticipant(participant);
+    });
+
+    socket.on('participantLeft', (participantId) => {
+      removeGroupCallParticipant(participantId);
+    });
+
+    return () => {
+      socket.off('groupCallInvitation');
+      socket.off('participantJoined');
+      socket.off('participantLeft');
+    };
+  }, [activeCall]);
+
+  const handleAddParticipants = () => {
+    setShowAddParticipant(true);
+    // Filter users who are not already in the call
+    const availableUsers = users.filter(
+      (user) =>
+        !groupCallParticipants.some((p) => p._id === user._id) &&
+        user._id !== activeCall.caller._id
+    );
+    setSelectedParticipants(availableUsers);
+  };
+
+  const handleInviteParticipant = (userId) => {
+    socket.emit('inviteToGroupCall', {
+      callId: activeCall.id,
+      userId,
+    });
+  };
 
   const formatDuration = (seconds) => {
     const minutes = Math.floor(seconds / 60);
@@ -82,10 +115,15 @@ const CallInterface = () => {
     if (!activeCall) return "";
     
     if (activeCall.isOutgoing) {
-      return activeCall.isReceiverOnline ? "Ringing..." : "Calling...";
+      if (!activeCall.connectedAt) {
+        return activeCall.isReceiverOnline ? "Ringing..." : "Calling...";
+      }
+      return "Connected";
     }
-    return "Incoming Call";
+    return activeCall.connectedAt ? "Connected" : "Incoming Call";
   };
+
+  if (!activeCall) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center animate-fadeIn">
@@ -107,7 +145,7 @@ const CallInterface = () => {
             )}
           </div>
           <button 
-            onClick={handleEndCall} 
+            onClick={endCall} 
             className="btn btn-circle btn-error"
           >
             <PhoneOff size={20} />
@@ -170,13 +208,93 @@ const CallInterface = () => {
             </button>
           )}
 
+          <button
+            onClick={handleAddParticipants}
+            className="btn btn-circle btn-primary"
+            title="Add Participants"
+          >
+            <Plus size={20} />
+          </button>
+
           <button 
-            onClick={handleEndCall} 
+            onClick={endCall} 
             className="btn btn-circle btn-error"
           >
             <PhoneOff size={20} />
           </button>
         </div>
+
+        {/* Add Participant Modal */}
+        {showAddParticipant && (
+          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center">
+            <div className="bg-base-100 p-4 rounded-lg w-96">
+              <h3 className="text-lg font-bold mb-4">Add Participants</h3>
+              <div className="max-h-60 overflow-y-auto">
+                {selectedParticipants.map((user) => (
+                  <div
+                    key={user._id}
+                    className="flex items-center justify-between p-2 hover:bg-base-200 rounded-lg"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="avatar">
+                        <div className="w-8 h-8 rounded-full">
+                          <img
+                            src={user.profilePic || "/avatar.png"}
+                            alt={user.fullName}
+                          />
+                        </div>
+                      </div>
+                      <span>{user.fullName}</span>
+                    </div>
+                    <button
+                      onClick={() => handleInviteParticipant(user._id)}
+                      className="btn btn-sm btn-primary"
+                    >
+                      Invite
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => setShowAddParticipant(false)}
+                  className="btn btn-ghost"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeCall.isGroupCall && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium">Participants</h4>
+              <button
+                onClick={handleAddParticipants}
+                className="p-1 text-blue-500 hover:bg-blue-50 rounded-full"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {groupCallParticipants.map((participant) => (
+                <div
+                  key={participant._id}
+                  className="flex items-center bg-gray-100 rounded-full px-3 py-1"
+                >
+                  <img
+                    src={participant.profilePic || "/avatar.png"}
+                    alt={participant.fullName}
+                    className="w-6 h-6 rounded-full mr-2"
+                  />
+                  <span className="text-sm">{participant.fullName}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

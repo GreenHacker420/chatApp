@@ -23,6 +23,9 @@ export const useChatStore = create((set, get) => ({
   isIncomingCall: false,
   incomingCallData: null,
 
+  groupCallParticipants: [],
+  groupCallInvitations: [],
+
   // ✅ Fetch users with error handling
   getUsers: async () => {
     set({ isUsersLoading: true });
@@ -262,7 +265,8 @@ export const useChatStore = create((set, get) => ({
           stream,
           isOutgoing: true,
           isReceiverOnline: isUserOnline,
-          startTime: Date.now() // Add timestamp to track call duration
+          startTime: null, // Initialize as null until call is accepted
+          connectedAt: null // New field to track when call is actually connected
         }
       });
 
@@ -336,6 +340,8 @@ export const useChatStore = create((set, get) => ({
         audio: true
       });
 
+      const now = Date.now();
+
       // Set call state before emitting to prevent flickering
       set({
         isCallActive: true,
@@ -344,7 +350,8 @@ export const useChatStore = create((set, get) => ({
           isVideo: incomingCallData.isVideo,
           stream,
           isOutgoing: false,
-          startTime: Date.now()
+          startTime: now,
+          connectedAt: now // Set connected time when call is accepted
         },
         isIncomingCall: false,
         incomingCallData: null
@@ -426,5 +433,50 @@ export const useChatStore = create((set, get) => ({
       isIncomingCall: false,
       incomingCallData: null
     });
+  },
+
+  addGroupCallParticipant: (participant) => {
+    set((state) => ({
+      groupCallParticipants: [...state.groupCallParticipants, participant],
+    }));
+  },
+
+  removeGroupCallParticipant: (participantId) => {
+    set((state) => ({
+      groupCallParticipants: state.groupCallParticipants.filter(
+        (p) => p._id !== participantId
+      ),
+    }));
+  },
+
+  handleGroupCallInvitation: (invitation) => {
+    set((state) => ({
+      groupCallInvitations: [...state.groupCallInvitations, invitation],
+    }));
+  },
+
+  acceptGroupCallInvitation: (invitationId) => {
+    const invitation = get().groupCallInvitations.find(
+      (inv) => inv.id === invitationId
+    );
+    if (!invitation) return;
+
+    set((state) => ({
+      groupCallInvitations: state.groupCallInvitations.filter(
+        (inv) => inv.id !== invitationId
+      ),
+      activeCall: {
+        ...invitation,
+        isGroupCall: true,
+      },
+    }));
+  },
+
+  rejectGroupCallInvitation: (invitationId) => {
+    set((state) => ({
+      groupCallInvitations: state.groupCallInvitations.filter(
+        (inv) => inv.id !== invitationId
+      ),
+    }));
   },
 }));
