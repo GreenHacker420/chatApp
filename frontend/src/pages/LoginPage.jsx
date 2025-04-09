@@ -41,7 +41,7 @@ const LoginPage = () => {
 
   // ✅ Google Login Handler
   const googleLogin = () => {
-    window.location.href = `${import.meta.env.VITE_API_URL}/google`; // ✅ Uses environment variable
+    window.location.href = `https://gutargu.greenhacker.tech/api/auth/google`;
   };
 
   return (
