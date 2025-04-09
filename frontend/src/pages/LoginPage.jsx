@@ -41,7 +41,8 @@ const LoginPage = () => {
 
   // ✅ Google Login Handler
   const googleLogin = () => {
-    window.location.href = `https://gutargu.greenhacker.tech/api/auth/google`;
+    const apiUrl = "https://gutargu.greenhacker.tech/api/auth";
+    window.location.href = `${apiUrl}/google`;
   };
 
   return (

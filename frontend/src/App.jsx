@@ -42,7 +42,7 @@ const App = () => {
           path="/profile"
           element={authUser ? <ProfilePage /> : <Navigate to="/login" />}
         />
-        <Route path="/google/success" element={<GoogleAuthSuccess />} />
+        <Route path="/google-auth-success" element={<GoogleAuthSuccess />} />
       </Routes>
 
       {/* Call-related components */}
