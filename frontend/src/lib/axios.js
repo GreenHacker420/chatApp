@@ -27,12 +27,12 @@ import axios from "axios";
 import toast from "react-hot-toast";
 
 // Get the base URL from environment variables
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api/auth";
+const BASE_URL = "https://gutargu.greenhacker.tech/api/auth/" || "http://localhost:5001/api/auth";
 console.log("🔹 Using API URL:", BASE_URL);
 
 export const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  withCredentials: true, // ✅ Allows sending cookies if backend supports it
+  withCredentials: true, // Allows sending cookies
   timeout: 15000, // 15 seconds timeout
 });
 
