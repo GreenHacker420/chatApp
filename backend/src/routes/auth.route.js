@@ -37,11 +37,17 @@ router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 
 // ✅ Google OAuth Routes
-router.get("/google", passport.authenticate("google", { scope: ["openid", "profile", "email"] }));
+router.get("/google", passport.authenticate("google", { 
+  scope: ["openid", "profile", "email"],
+  prompt: "select_account"
+}));
 
 router.get(
   "/google/callback",
-  passport.authenticate("google", { session: false, failureRedirect: `${process.env.CLIENT_URL}/login?error=true` }),
+  passport.authenticate("google", { 
+    session: false, 
+    failureRedirect: `${process.env.CLIENT_URL}/login?error=google_auth_failed` 
+  }),
   (req, res) => {
     if (!req.user) {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=OAuthFailed`);

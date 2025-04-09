@@ -27,7 +27,7 @@ passport.use(
             email: profile.emails[0].value,
             profilePic: profile.photos[0].value,
             verified: true,
-            isGoogleAuth: true, // ✅ Tracks Google authentication
+            isGoogleAuth: true,
           });
 
           await user.save();
