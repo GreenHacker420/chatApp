@@ -49,10 +49,13 @@ export const connectDB = async () => {
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       maxPoolSize: 10,
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      autoIndex: process.env.NODE_ENV !== "production", // Disable auto-indexing in production
     });
 
-    console.log(`✅ MongoDB Connected`);
-    retryCount = 0; // ✅ Reset retry count after successful connection
+    console.log(`✅ MongoDB Connected: ${mongoose.connection.host}`);
+    retryCount = 0; // Reset retry count after successful connection
   } catch (error) {
     console.error("❌ MongoDB Connection Error:", error.message);
 
@@ -66,3 +69,25 @@ export const connectDB = async () => {
     }
   }
 };
+
+// Handle MongoDB Connection Events
+mongoose.connection.on("disconnected", () => {
+  console.warn("⚠️ MongoDB Disconnected. Attempting to reconnect...");
+  connectDB();
+});
+
+mongoose.connection.on("error", (err) => {
+  console.error("❌ MongoDB Connection Error:", err.message);
+});
+
+// Close MongoDB Connection on App Termination
+process.on("SIGINT", async () => {
+  try {
+    await mongoose.connection.close();
+    console.log("🔴 MongoDB Disconnected due to app termination");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Error closing MongoDB connection:", error);
+    process.exit(1);
+  }
+});
