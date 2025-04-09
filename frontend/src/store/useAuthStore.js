@@ -3,7 +3,9 @@ import { axiosInstance } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 
-const BASE_URL = "https://gutargu.greenhacker.tech";
+const SOCKET_URL = import.meta.env.PROD 
+  ? "https://gutargu.greenhacker.tech"
+  : "http://localhost:5001";
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
@@ -164,44 +166,11 @@ export const useAuthStore = create((set, get) => ({
   // ✅ WebSocket Connection (Prevents Duplicates)
   connectSocket: () => {
     const { authUser, socket } = get();
-    if (!authUser) return;
-
-    if (socket && socket.connected) {
-      console.log("✅ Socket already connected.");
-      return;
-    }
-
-    console.log("🔗 Connecting socket...");
-    try {
-      const newSocket = io(BASE_URL, {
-        query: { userId: authUser._id },
+    if (authUser && !socket) {
+      const newSocket = io(SOCKET_URL, {
         withCredentials: true,
-        transports: ["websocket"],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        timeout: 10000
       });
-
-      // Set up error handling
-      newSocket.on("connect_error", (error) => {
-        console.error("🔴 Socket connection error:", error.message);
-      });
-
-      newSocket.on("error", (error) => {
-        console.error("🔴 Socket error:", error);
-      });
-
       set({ socket: newSocket });
-
-      newSocket.on("connect", () => console.log("✅ Socket connected:", newSocket.id));
-      newSocket.on("getOnlineUsers", (userIds) => {
-        console.log("🟢 Received Online Users:", userIds);
-        set({ onlineUsers: [...userIds] }); // Forces Zustand to update state
-      });
-      newSocket.on("disconnect", () => console.log("🔴 Socket disconnected"));
-    } catch (error) {
-      console.error("🔴 Failed to create socket connection:", error);
     }
   },
 

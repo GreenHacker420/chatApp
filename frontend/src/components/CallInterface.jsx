@@ -3,7 +3,6 @@ import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, Plus } from "lucide-react";
 import toast from "react-hot-toast";
-import { socket } from '../socket';
 
 const CallInterface = () => {
   const {
@@ -21,52 +20,14 @@ const CallInterface = () => {
     rejectGroupCallInvitation,
     users
   } = useChatStore();
-  const { selectedUser, socket: authSocket } = useAuthStore();
-  const [callDuration, setCallDuration] = useState(0);
+  
+  const { socket } = useAuthStore();
+
   const [showAddParticipant, setShowAddParticipant] = useState(false);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const durationIntervalRef = useRef(null);
-
-  // Cleanup function
-  const cleanup = useCallback(() => {
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-      durationIntervalRef.current = null;
-    }
-  }, []);
-
-  // Handle component unmount
-  useEffect(() => {
-    return () => {
-      cleanup();
-      // Ensure we stop any active call when component unmounts
-      if (activeCall) {
-        endCall();
-      }
-    };
-  }, [cleanup, activeCall, endCall]);
-
-  // Handle media stream
-  useEffect(() => {
-    if (activeCall?.stream && localVideoRef.current) {
-      localVideoRef.current.srcObject = activeCall.stream;
-    }
-
-    // Start call duration timer if call is connected
-    if (activeCall?.connectedAt) {
-      durationIntervalRef.current = setInterval(() => {
-        const duration = Math.floor((Date.now() - activeCall.connectedAt) / 1000);
-        setCallDuration(duration);
-      }, 1000);
-    }
-
-    return cleanup;
-  }, [activeCall?.stream, activeCall?.connectedAt, cleanup]);
 
   useEffect(() => {
-    if (!activeCall) return;
+    if (!activeCall || !socket) return;
 
     socket.on('groupCallInvitation', (invitation) => {
       handleGroupCallInvitation(invitation);
@@ -85,7 +46,7 @@ const CallInterface = () => {
       socket.off('participantJoined');
       socket.off('participantLeft');
     };
-  }, [activeCall]);
+  }, [activeCall, socket]);
 
   const handleAddParticipants = () => {
     setShowAddParticipant(true);
@@ -105,197 +66,116 @@ const CallInterface = () => {
     });
   };
 
-  const formatDuration = (seconds) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
-
-  const getCallStatus = () => {
-    if (!activeCall) return "";
-    
-    if (activeCall.isOutgoing) {
-      if (!activeCall.connectedAt) {
-        return activeCall.isReceiverOnline ? "Ringing..." : "Calling...";
-      }
-      return "Connected";
-    }
-    return activeCall.connectedAt ? "Connected" : "Incoming Call";
-  };
-
   if (!activeCall) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center animate-fadeIn">
-      <div className="bg-base-100 p-4 rounded-lg w-full max-w-4xl">
-        <div className="flex justify-between items-center mb-4">
+    <div className="fixed bottom-0 right-0 w-80 bg-white rounded-lg shadow-lg p-4 m-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <img
+            src={activeCall.caller.avatar}
+            alt={activeCall.caller.name}
+            className="w-10 h-10 rounded-full mr-2"
+          />
           <div>
-            <h2 className="text-xl font-bold">
-              {getCallStatus()} - {selectedUser?.fullName}
-            </h2>
-            {activeCall?.startTime && (
-              <p className="text-sm text-base-content/70">
-                Duration: {formatDuration(callDuration)}
-              </p>
-            )}
-            {activeCall?.isOutgoing && !activeCall?.isReceiverOnline && (
-              <p className="text-sm text-base-content/70 mt-1">
-                User is offline. They will be notified when they come online.
-              </p>
-            )}
+            <h3 className="font-semibold">{activeCall.caller.name}</h3>
+            <p className="text-sm text-gray-500">
+              {activeCall.isGroupCall ? 'Group Call' : 'Calling...'}
+            </p>
           </div>
-          <button 
-            onClick={endCall} 
-            className="btn btn-circle btn-error"
-          >
-            <PhoneOff size={20} />
-          </button>
         </div>
+        <button
+          onClick={endCall}
+          className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"
+        >
+          <PhoneOff size={20} />
+        </button>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {/* Local Video */}
-          {activeCall?.isVideo && (
-            <div className="relative">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className={`w-full rounded-lg ${isVideoOff ? 'hidden' : ''}`}
-              />
-              {isVideoOff && (
-                <div className="w-full h-48 bg-base-300 rounded-lg flex items-center justify-center">
-                  <span className="text-lg">Camera Off</span>
-                </div>
-              )}
-              <div className="absolute bottom-2 left-2 text-white bg-black bg-opacity-50 px-2 py-1 rounded">
-                You
-              </div>
-            </div>
-          )}
-
-          {/* Remote Video */}
-          {activeCall?.isVideo && (
-            <div className="relative">
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="w-full rounded-lg"
-              />
-              <div className="absolute bottom-2 left-2 text-white bg-black bg-opacity-50 px-2 py-1 rounded">
-                {selectedUser?.fullName}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Call Controls */}
-        <div className="flex justify-center gap-4">
-          <button
-            onClick={toggleMute}
-            className={`btn btn-circle ${isMuted ? 'btn-error' : 'btn-primary'}`}
-          >
-            {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-          </button>
-
-          {activeCall?.isVideo && (
+      {activeCall.isGroupCall && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium">Participants</h4>
             <button
-              onClick={toggleVideo}
-              className={`btn btn-circle ${isVideoOff ? 'btn-error' : 'btn-primary'}`}
+              onClick={handleAddParticipants}
+              className="p-1 text-blue-500 hover:bg-blue-50 rounded-full"
             >
-              {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+              <Plus size={16} />
             </button>
-          )}
-
-          <button
-            onClick={handleAddParticipants}
-            className="btn btn-circle btn-primary"
-            title="Add Participants"
-          >
-            <Plus size={20} />
-          </button>
-
-          <button 
-            onClick={endCall} 
-            className="btn btn-circle btn-error"
-          >
-            <PhoneOff size={20} />
-          </button>
-        </div>
-
-        {/* Add Participant Modal */}
-        {showAddParticipant && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center">
-            <div className="bg-base-100 p-4 rounded-lg w-96">
-              <h3 className="text-lg font-bold mb-4">Add Participants</h3>
-              <div className="max-h-60 overflow-y-auto">
-                {selectedParticipants.map((user) => (
-                  <div
-                    key={user._id}
-                    className="flex items-center justify-between p-2 hover:bg-base-200 rounded-lg"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="avatar">
-                        <div className="w-8 h-8 rounded-full">
-                          <img
-                            src={user.profilePic || "/avatar.png"}
-                            alt={user.fullName}
-                          />
-                        </div>
-                      </div>
-                      <span>{user.fullName}</span>
-                    </div>
-                    <button
-                      onClick={() => handleInviteParticipant(user._id)}
-                      className="btn btn-sm btn-primary"
-                    >
-                      Invite
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex justify-end">
-                <button
-                  onClick={() => setShowAddParticipant(false)}
-                  className="btn btn-ghost"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
           </div>
-        )}
-
-        {activeCall.isGroupCall && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between">
-              <h4 className="font-medium">Participants</h4>
-              <button
-                onClick={handleAddParticipants}
-                className="p-1 text-blue-500 hover:bg-blue-50 rounded-full"
+          <div className="flex flex-wrap gap-2 mt-2">
+            {groupCallParticipants.map((participant) => (
+              <div
+                key={participant._id}
+                className="flex items-center bg-gray-100 rounded-full px-3 py-1"
               >
-                <Plus size={16} />
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {groupCallParticipants.map((participant) => (
+                <img
+                  src={participant.avatar}
+                  alt={participant.name}
+                  className="w-6 h-6 rounded-full mr-2"
+                />
+                <span className="text-sm">{participant.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-center space-x-4">
+        <button
+          onClick={toggleMute}
+          className={`p-3 rounded-full ${
+            isMuted ? 'bg-red-500 text-white' : 'bg-gray-200'
+          }`}
+        >
+          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+        </button>
+        <button
+          onClick={toggleVideo}
+          className={`p-3 rounded-full ${
+            isVideoOff ? 'bg-red-500 text-white' : 'bg-gray-200'
+          }`}
+        >
+          {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+        </button>
+      </div>
+
+      {showAddParticipant && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-4 w-96">
+            <h3 className="text-lg font-semibold mb-4">Add Participants</h3>
+            <div className="max-h-60 overflow-y-auto">
+              {selectedParticipants.map((user) => (
                 <div
-                  key={participant._id}
-                  className="flex items-center bg-gray-100 rounded-full px-3 py-1"
+                  key={user._id}
+                  className="flex items-center justify-between p-2 hover:bg-gray-50"
                 >
-                  <img
-                    src={participant.profilePic || "/avatar.png"}
-                    alt={participant.fullName}
-                    className="w-6 h-6 rounded-full mr-2"
-                  />
-                  <span className="text-sm">{participant.fullName}</span>
+                  <div className="flex items-center">
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="w-8 h-8 rounded-full mr-2"
+                    />
+                    <span>{user.name}</span>
+                  </div>
+                  <button
+                    onClick={() => handleInviteParticipant(user._id)}
+                    className="px-3 py-1 bg-blue-500 text-white rounded-full text-sm hover:bg-blue-600"
+                  >
+                    Invite
+                  </button>
                 </div>
               ))}
             </div>
+            <button
+              onClick={() => setShowAddParticipant(false)}
+              className="mt-4 w-full py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+            >
+              Close
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
