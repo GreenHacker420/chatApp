@@ -2,41 +2,18 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
-import axios from 'axios';
 
 const SOCKET_URL = "https://gutargu.greenhacker.tech";
 
 export const useAuthStore = create((set, get) => ({
-  authUser: null,
-  setAuthUser: (user) => set({ authUser: user }),
-
-  isSigningUp: false,
-  isLoggingIn: false,
-  isUpdatingProfile: false,
-  isCheckingAuth: true,
-  onlineUsers: [],
-  socket: null,
-  isLoggingOut: false,
-
   user: null,
   isLoading: false,
   error: null,
   isVerified: false,
+  onlineUsers: [],
+  socket: null,
 
   // ✅ Check Auth Status
-  checkAuthStatus: async () => {
-    try {
-      set({ isLoading: true });
-      const response = await axios.get('/api/auth/check', { withCredentials: true });
-      set({ user: response.data, isLoading: false });
-      return true;
-    } catch (error) {
-      set({ user: null, isLoading: false });
-      return false;
-    }
-  },
-
-  // ✅ Check if user is authenticated & update auth state
   checkAuth: async () => {
     try {
       set({ isLoading: true });
@@ -60,22 +37,31 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // ✅ Google Login Success (Refresh User Session)
+  // ✅ Handle Google Auth Success
   handleGoogleAuthSuccess: async (navigate) => {
     try {
+      console.log("🔹 Starting Google auth success flow...");
       set({ isLoading: true });
-      const response = await axiosInstance.get("check");
-      if (response.data && response.data._id) {
-        set({ user: response.data });
-        get().connectSocket();
-        toast.success('Google authentication successful');
+      
+      // First check if we're already authenticated
+      const authResponse = await get().checkAuth();
+      console.log("✅ Auth check result:", authResponse);
+      
+      if (authResponse) {
+        console.log("✅ User authenticated, navigating to home...");
         if (navigate) {
           navigate('/');
         }
         return true;
       }
-      throw new Error('No user data received');
+      
+      console.log("⚠️ Auth check failed, redirecting to login...");
+      if (navigate) {
+        navigate('/login');
+      }
+      return false;
     } catch (error) {
+      console.error("❌ Google auth error:", error);
       set({ isLoading: false });
       toast.error('Google authentication failed');
       if (navigate) {
