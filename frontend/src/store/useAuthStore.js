@@ -61,7 +61,7 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Google Login Success (Refresh User Session)
-  handleGoogleAuthSuccess: async () => {
+  handleGoogleAuthSuccess: async (navigate) => {
     try {
       set({ isLoading: true });
       const response = await axiosInstance.get("check");
@@ -69,23 +69,32 @@ export const useAuthStore = create((set, get) => ({
         set({ user: response.data });
         get().connectSocket();
         toast.success('Google authentication successful');
+        if (navigate) {
+          navigate('/');
+        }
         return true;
       }
       throw new Error('No user data received');
     } catch (error) {
       set({ isLoading: false });
       toast.error('Google authentication failed');
+      if (navigate) {
+        navigate('/login');
+      }
       return false;
     }
   },
 
   // ✅ Sign Up
-  signup: async (userData) => {
+  signup: async (userData, navigate) => {
     try {
       set({ isLoading: true, error: null });
       const response = await axiosInstance.post("signup", userData);
       toast.success(response.data.message);
       set({ isLoading: false });
+      if (navigate) {
+        navigate('/login');
+      }
       return true;
     } catch (error) {
       const message = error.response?.data?.message || 'Signup failed';
@@ -96,13 +105,16 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Login
-  login: async (credentials) => {
+  login: async (credentials, navigate) => {
     try {
       set({ isLoading: true, error: null });
       const response = await axiosInstance.post("login", credentials);
       set({ user: response.data, isLoading: false });
       get().connectSocket();
       toast.success('Logged in successfully');
+      if (navigate) {
+        navigate('/');
+      }
       return true;
     } catch (error) {
       const message = error.response?.data?.message || 'Login failed';
@@ -113,13 +125,16 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Logout
-  logout: async () => {
+  logout: async (navigate) => {
     try {
       set({ isLoading: true });
       await axiosInstance.post("logout");
       get().disconnectSocket();
       set({ user: null, isLoading: false });
       toast.success('Logged out successfully');
+      if (navigate) {
+        navigate('/login');
+      }
       return true;
     } catch (error) {
       toast.error('Logout failed');
@@ -160,12 +175,15 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Verify Email
-  verifyEmail: async (userId, token) => {
+  verifyEmail: async (userId, token, navigate) => {
     try {
       set({ isLoading: true });
       const response = await axiosInstance.get(`verify/${userId}/${token}`);
       set({ isVerified: true, isLoading: false });
       toast.success(response.data.message);
+      if (navigate) {
+        navigate('/login?verified=true');
+      }
       return true;
     } catch (error) {
       const message = error.response?.data?.message || 'Email verification failed';
@@ -192,12 +210,15 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Forgot Password
-  forgotPassword: async (email) => {
+  forgotPassword: async (email, navigate) => {
     try {
       set({ isLoading: true });
       const response = await axiosInstance.post("forgot-password", { email });
       toast.success(response.data.message);
       set({ isLoading: false });
+      if (navigate) {
+        navigate('/login?reset=requested');
+      }
       return true;
     } catch (error) {
       const message = error.response?.data?.message || 'Failed to process forgot password request';
@@ -208,12 +229,15 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // ✅ Reset Password
-  resetPassword: async (newPassword, token) => {
+  resetPassword: async (newPassword, token, navigate) => {
     try {
       set({ isLoading: true });
       const response = await axiosInstance.post(`reset-password/${token}`, { newPassword });
       toast.success(response.data.message);
       set({ isLoading: false });
+      if (navigate) {
+        navigate('/login?reset=success');
+      }
       return true;
     } catch (error) {
       const message = error.response?.data?.message || 'Password reset failed';
@@ -263,3 +287,5 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 }));
+
+export default useAuthStore;
