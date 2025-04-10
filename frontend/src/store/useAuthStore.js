@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
-const SOCKET_URL = "https://gutargu.greenhacker.tech" || "http://localhost:5001";
+
+const SOCKET_URL = "https://gutargu.greenhacker.tech";
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
@@ -21,7 +22,7 @@ export const useAuthStore = create((set, get) => ({
     set({ isCheckingAuth: true });
     try {
       console.log("🔹 Checking authentication status...");
-      const response = await axiosInstance.get("/api/auth/check", { withCredentials: true }); // ✅ Ensure cookies are sent
+      const response = await axiosInstance.get("auth/check");
       console.log("🔹 Auth check response:", response);
       
       if (response.data) {
@@ -38,25 +39,23 @@ export const useAuthStore = create((set, get) => ({
       console.warn("⚠️ Auth check failed:", error.response?.data?.message || error.message);
       set({ authUser: null });
       
-      // If the error is due to network issues, try again after a short delay
       if (!error.response) {
         console.log("🔹 Network error, retrying after delay...");
         await new Promise(resolve => setTimeout(resolve, 1000));
         return get().checkAuth();
       }
       
-      throw error; // Re-throw to be caught by the component
+      throw error;
     } finally {
       set({ isCheckingAuth: false });
     }
   },
+
   // ✅ Google Login Success (Refresh User Session)
   handleGoogleAuthSuccess: async () => {
     try {
       console.log("🔹 Google Auth Success: Fetching user data...");
-      
-      // First check if we have a user session
-      const response = await axiosInstance.get("/api/auth/check", { withCredentials: true });
+      const response = await axiosInstance.get("auth/check");
       console.log("🔹 Auth check response:", response);
       
       if (response.data) {
@@ -70,13 +69,12 @@ export const useAuthStore = create((set, get) => ({
       }
     } catch (error) {
       console.error("Google Auth Error:", error);
-      // If the error is due to network issues, try again after a short delay
       if (!error.response) {
         console.log("🔹 Network error, retrying after delay...");
         await new Promise(resolve => setTimeout(resolve, 1000));
         return get().handleGoogleAuthSuccess();
       }
-      throw error; // Re-throw to be caught by the component
+      throw error;
     }
   },
 
@@ -89,7 +87,7 @@ export const useAuthStore = create((set, get) => ({
 
     set({ isSigningUp: true });
     try {
-      const res = await axiosInstance.post("/api/auth/signup", data, { withCredentials: true });
+      const res = await axiosInstance.post("auth/signup", data);
       set({ authUser: res.data });
       toast.success("Account created successfully");
       get().connectSocket();
@@ -110,7 +108,7 @@ export const useAuthStore = create((set, get) => ({
   
     set({ isLoggingIn: true });
     try {
-      const res = await axiosInstance.post("/api/auth/login", data, { withCredentials: true });
+      const res = await axiosInstance.post("auth/login", data);
       set({ authUser: res.data });
       toast.success("Logged in successfully");
       get().connectSocket();
@@ -131,12 +129,12 @@ export const useAuthStore = create((set, get) => ({
   logout: async () => {
     set({ isLoggingOut: true });
     try {
-      await axiosInstance.post("/api/auth/logout", {}, { withCredentials: true });
+      await axiosInstance.post("api/auth/logout");
       get().disconnectSocket();
       localStorage.removeItem("jwt");
       set({ authUser: null, socket: null, onlineUsers: [] });
       toast.success("Logged out successfully");
-      window.location.href = "/api/auth/login";
+      window.location.href = "/login";
     } catch (error) {
       console.error("Logout failed:", error.response?.data?.message || error.message);
       toast.error("Logout failed, please try again");
@@ -149,7 +147,7 @@ export const useAuthStore = create((set, get) => ({
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
-      const res = await axiosInstance.put("/api/auth/update-profile", data, { withCredentials: true });
+      const res = await axiosInstance.put("auth/update-profile", data);
       set({ authUser: res.data });
       toast.success("Profile updated successfully");
     } catch (error) {
@@ -160,7 +158,7 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // ✅ WebSocket Connection (Prevents Duplicates)
+  // ✅ WebSocket Connection
   connectSocket: () => {
     const { authUser, socket } = get();
     if (authUser && !socket) {

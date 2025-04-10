@@ -27,7 +27,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 
 // Get the base URL from environment variables
-const BASE_URL = "https://gutargu.greenhacker.tech/api/auth/" || "http://localhost:5001/api/auth";
+const BASE_URL = "https://gutargu.greenhacker.tech/api";
 console.log("🔹 Using API URL:", BASE_URL);
 
 export const axiosInstance = axios.create({
@@ -44,8 +44,13 @@ axiosInstance.interceptors.request.use(
       config.baseURL = config.baseURL.slice(0, -1);
     }
     
+    // Remove leading slash from url if it exists
+    if (config.url.startsWith('/')) {
+      config.url = config.url.slice(1);
+    }
+    
     // Log the full URL being requested
-    const fullUrl = `${config.baseURL}${config.url}`;
+    const fullUrl = `${config.baseURL}/${config.url}`;
     console.log(`🔹 ${config.method.toUpperCase()} request to ${fullUrl}`, config);
     return config;
   },
