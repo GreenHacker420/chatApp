@@ -69,10 +69,10 @@ export const config = {
     CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CALLBACK_URL: isDevelopment
       ? `http://localhost:${PORTS.BACKEND}/api/auth/google/callback`
-      : `https://api.gutargu.greenhacker.tech/api/auth/google/callback`,
+      : `https://gutargu.greenhacker.tech/api/auth/google/callback`,
     AUTH_URL: isDevelopment
       ? `http://localhost:${PORTS.BACKEND}/api/auth/google`
-      : `https://api.gutargu.greenhacker.tech/api/auth/google`,
+      : `https://gutargu.greenhacker.tech/api/auth/google`,
   },
 
   // Email Configuration

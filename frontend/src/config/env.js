@@ -3,7 +3,7 @@ const isDevelopment = import.meta.env.MODE === 'development';
 // Backend URLs
 const BACKEND_URLS = {
   DEVELOPMENT: `http://localhost:${import.meta.env.VITE_BACKEND_PORT || 5001}`,
-  PRODUCTION: 'https://api.gutargu.greenhacker.tech', // Separate backend domain
+  PRODUCTION: 'https://gutargu.greenhacker.tech', // Separate backend domain
 };
 
 // Frontend URLs
