@@ -1,11 +1,65 @@
 import { create } from "zustand";
-import { axiosInstance } from "../lib/axios.js";
+import { authApi } from "../lib/axios.js";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
+import config from "../config/env.js";
 
-const SOCKET_URL = "https://gutargu.greenhacker.tech";
+// Success Messages
+const SUCCESS_MESSAGES = {
+  LOGIN: "Logged in successfully",
+  LOGOUT: "Logged out successfully",
+  SIGNUP: "Account created successfully",
+  PROFILE_UPDATE: "Profile updated successfully",
+  VERIFICATION_EMAIL: "Verification email sent",
+  PASSWORD_RESET: "Password reset successful",
+};
+
+// Error Messages
+const ERROR_MESSAGES = {
+  LOGIN: "Login failed",
+  LOGOUT: "Logout failed",
+  SIGNUP: "Signup failed",
+  PROFILE_UPDATE: "Profile update failed",
+  VERIFICATION_EMAIL: "Failed to send verification email",
+  PASSWORD_RESET: "Password reset failed",
+  GOOGLE_AUTH: "Google authentication failed",
+  SOCKET_CONNECTION: "Connection error. Retrying...",
+};
+
+// Types
+/**
+ * @typedef {Object} User
+ * @property {string} _id
+ * @property {string} fullName
+ * @property {string} email
+ * @property {string} [profilePic]
+ */
+
+/**
+ * @typedef {Object} AuthState
+ * @property {User|null} user
+ * @property {boolean} isLoading
+ * @property {string|null} error
+ * @property {boolean} isVerified
+ * @property {Array} onlineUsers
+ * @property {any} socket
+ */
+
+/**
+ * Create a base64 string from a file
+ * @param {File} file - The file to convert
+ * @returns {Promise<string>} - Base64 string
+ */
+const fileToBase64 = async (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.readAsDataURL(file);
+  });
+};
 
 export const useAuthStore = create((set, get) => ({
+  // Initial state
   user: null,
   isLoading: false,
   error: null,
@@ -13,12 +67,12 @@ export const useAuthStore = create((set, get) => ({
   onlineUsers: [],
   socket: null,
 
-  // ✅ Check Auth Status
+  // ✅ Auth Actions
   checkAuth: async () => {
     try {
       set({ isLoading: true });
-      const response = await axiosInstance.get("check");
-      if (response.data && response.data._id) {
+      const response = await authApi.get("check");
+      if (response.data?._id) {
         set({ user: response.data });
         get().connectSocket();
         return true;
@@ -37,214 +91,179 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // ✅ Handle Google Auth Success
   handleGoogleAuthSuccess: async (navigate) => {
     try {
-      console.log("🔹 Starting Google auth success flow...");
       set({ isLoading: true });
-      
-      // First check if we're already authenticated
       const authResponse = await get().checkAuth();
-      console.log("✅ Auth check result:", authResponse);
       
       if (authResponse) {
-        console.log("✅ User authenticated, navigating to home...");
-        if (navigate) {
-          navigate('/');
-        }
+        navigate?.(config.ROUTES.APP.HOME);
         return true;
       }
       
-      console.log("⚠️ Auth check failed, redirecting to login...");
-      if (navigate) {
-        navigate('/login');
-      }
+      navigate?.(config.ROUTES.AUTH.LOGIN);
       return false;
     } catch (error) {
       console.error("❌ Google auth error:", error);
       set({ isLoading: false });
-      toast.error('Google authentication failed');
-      if (navigate) {
-        navigate('/login');
-      }
+      toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
+      navigate?.(config.ROUTES.AUTH.LOGIN);
       return false;
     }
   },
 
-  // ✅ Sign Up
   signup: async (userData, navigate) => {
     try {
       set({ isLoading: true, error: null });
-      const response = await axiosInstance.post("signup", userData);
-      toast.success(response.data.message);
-      set({ isLoading: false });
-      if (navigate) {
-        navigate('/login');
-      }
+      const response = await authApi.post("signup", userData);
+      toast.success(response.data.message || SUCCESS_MESSAGES.SIGNUP);
+      navigate?.(config.ROUTES.AUTH.LOGIN);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Signup failed';
+      const message = error.response?.data?.message || ERROR_MESSAGES.SIGNUP;
       toast.error(message);
-      set({ error: message, isLoading: false });
+      set({ error: message });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Login
   login: async (credentials, navigate) => {
     try {
       set({ isLoading: true, error: null });
-      const response = await axiosInstance.post("login", credentials);
-      set({ user: response.data, isLoading: false });
+      const response = await authApi.post("login", credentials);
+      set({ user: response.data });
       get().connectSocket();
-      toast.success('Logged in successfully');
-      if (navigate) {
-        navigate('/');
-      }
+      toast.success(SUCCESS_MESSAGES.LOGIN);
+      navigate?.(config.ROUTES.APP.HOME);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
+      const message = error.response?.data?.message || ERROR_MESSAGES.LOGIN;
       toast.error(message);
-      set({ error: message, isLoading: false });
+      set({ error: message });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Logout
   logout: async (navigate) => {
     try {
       set({ isLoading: true });
-      await axiosInstance.post("logout");
+      await authApi.post("logout");
       get().disconnectSocket();
-      set({ user: null, isLoading: false });
-      toast.success('Logged out successfully');
-      if (navigate) {
-        navigate('/login');
-      }
+      set({ user: null });
+      toast.success(SUCCESS_MESSAGES.LOGOUT);
+      navigate?.(config.ROUTES.AUTH.LOGIN);
       return true;
     } catch (error) {
-      toast.error('Logout failed');
-      set({ isLoading: false });
+      toast.error(ERROR_MESSAGES.LOGOUT);
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Update Profile
+  // ✅ Profile Actions
   updateProfile: async (formData) => {
     try {
       set({ isLoading: true });
       
-      let profilePic = formData.profilePic;
-      if (profilePic && typeof profilePic !== 'string') {
-        const reader = new FileReader();
-        const base64 = await new Promise((resolve) => {
-          reader.onload = (e) => resolve(e.target.result);
-          reader.readAsDataURL(profilePic);
-        });
-        profilePic = base64;
-      }
+      const profilePic = formData.profilePic && typeof formData.profilePic !== 'string'
+        ? await fileToBase64(formData.profilePic)
+        : formData.profilePic;
 
-      const response = await axiosInstance.put(
+      const response = await authApi.put(
         "update-profile",
         { ...formData, profilePic }
       );
 
-      set({ user: response.data, isLoading: false });
-      toast.success('Profile updated successfully');
+      set({ user: response.data });
+      toast.success(SUCCESS_MESSAGES.PROFILE_UPDATE);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Profile update failed';
+      const message = error.response?.data?.message || ERROR_MESSAGES.PROFILE_UPDATE;
       toast.error(message);
-      set({ isLoading: false });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Verify Email
+  // ✅ Email Verification Actions
   verifyEmail: async (userId, token, navigate) => {
     try {
       set({ isLoading: true });
-      const response = await axiosInstance.get(`verify/${userId}/${token}`);
-      set({ isVerified: true, isLoading: false });
+      const response = await authApi.get(`verify/${userId}/${token}`);
+      set({ isVerified: true });
       toast.success(response.data.message);
-      if (navigate) {
-        navigate('/login?verified=true');
-      }
+      navigate?.(`${config.ROUTES.AUTH.LOGIN}?verified=true`);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Email verification failed';
+      const message = error.response?.data?.message || ERROR_MESSAGES.VERIFICATION_EMAIL;
       toast.error(message);
-      set({ isLoading: false });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Resend Verification Email
   resendVerification: async (email) => {
     try {
       set({ isLoading: true });
-      const response = await axiosInstance.post("resend-verification", { email });
-      toast.success(response.data.message);
-      set({ isLoading: false });
+      const response = await authApi.post("resend-verification", { email });
+      toast.success(response.data.message || SUCCESS_MESSAGES.VERIFICATION_EMAIL);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Failed to resend verification email';
+      const message = error.response?.data?.message || ERROR_MESSAGES.VERIFICATION_EMAIL;
       toast.error(message);
-      set({ isLoading: false });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Forgot Password
+  // ✅ Password Reset Actions
   forgotPassword: async (email, navigate) => {
     try {
       set({ isLoading: true });
-      const response = await axiosInstance.post("forgot-password", { email });
+      const response = await authApi.post("forgot-password", { email });
       toast.success(response.data.message);
-      set({ isLoading: false });
-      if (navigate) {
-        navigate('/login?reset=requested');
-      }
+      navigate?.(`${config.ROUTES.AUTH.LOGIN}?reset=requested`);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Failed to process forgot password request';
+      const message = error.response?.data?.message || ERROR_MESSAGES.PASSWORD_RESET;
       toast.error(message);
-      set({ isLoading: false });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ Reset Password
   resetPassword: async (newPassword, token, navigate) => {
     try {
       set({ isLoading: true });
-      const response = await axiosInstance.post(`reset-password/${token}`, { newPassword });
-      toast.success(response.data.message);
-      set({ isLoading: false });
-      if (navigate) {
-        navigate('/login?reset=success');
-      }
+      const response = await authApi.post(`reset-password/${token}`, { newPassword });
+      toast.success(response.data.message || SUCCESS_MESSAGES.PASSWORD_RESET);
+      navigate?.(`${config.ROUTES.AUTH.LOGIN}?reset=success`);
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || 'Password reset failed';
+      const message = error.response?.data?.message || ERROR_MESSAGES.PASSWORD_RESET;
       toast.error(message);
-      set({ isLoading: false });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  // ✅ WebSocket Connection
+  // ✅ Socket Actions
   connectSocket: () => {
     const { user, socket } = get();
     if (user?._id && !socket) {
-      const newSocket = io(SOCKET_URL, {
-        withCredentials: true,
-        transports: ['websocket'],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        auth: {
-          userId: user._id
-        }
+      const newSocket = io(config.SOCKET.URL, {
+        ...config.SOCKET.CONFIG,
+        auth: { userId: user._id }
       });
 
       newSocket.on('connect', () => {
@@ -254,20 +273,17 @@ export const useAuthStore = create((set, get) => ({
 
       newSocket.on('connect_error', (error) => {
         console.error('❌ Socket connection error:', error);
-        toast.error("Connection error. Retrying...");
+        toast.error(ERROR_MESSAGES.SOCKET_CONNECTION);
       });
 
       set({ socket: newSocket });
     }
   },
 
-  // ✅ WebSocket Disconnection
   disconnectSocket: () => {
     const { socket, user } = get();
     if (socket?.connected) {
-      if (user?._id) {
-        socket.emit('offline', { userId: user._id });
-      }
+      user?._id && socket.emit('offline', { userId: user._id });
       socket.disconnect();
       set({ socket: null, onlineUsers: [] });
     }

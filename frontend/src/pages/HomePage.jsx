@@ -13,7 +13,7 @@ const HomePage = () => {
 
   // ✅ Update Page Title Dynamically
   useEffect(() => {
-    document.title = selectedUser ? `Chat with ${selectedUser.fullName}` : "Chat App";
+    document.title = selectedUser ? `Chat with ${selectedUser.fullName}` : "GutarGu Chat";
   }, [selectedUser]);
 
   // ✅ Listen for Real-Time Online Status Updates

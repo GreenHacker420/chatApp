@@ -14,6 +14,7 @@ import {
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimit } from "express-rate-limit"; // ✅ Prevents spam on email verification
 import { generateToken } from "../lib/utils.js"; // ✅ Ensure correct path
+import { config } from "../config/env.js"; // ✅ Import config from correct path
 
 
 const router = express.Router();
@@ -46,22 +47,22 @@ router.get(
   "/google/callback",
   passport.authenticate("google", { 
     session: false, 
-    failureRedirect: `${process.env.CLIENT_URL}/login?error=google_auth_failed` 
+    failureRedirect: `${process.env.CLIENT_URL || config.CLIENT.URL}/login?error=google_auth_failed` 
   }),
   (req, res) => {
     if (!req.user) {
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=OAuthFailed`);
+      return res.redirect(`${process.env.CLIENT_URL || config.CLIENT.URL}/login?error=OAuthFailed`);
     }
 
     // ✅ Store JWT in HTTP-only cookie
     res.cookie("jwt", generateToken(req.user._id), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
       expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    res.redirect(`${process.env.CLIENT_URL}/google-auth-success`);
+    res.redirect(`${process.env.CLIENT_URL || config.CLIENT.URL}/google-auth-success`);
   }
 );
 // ✅ Protected Routes

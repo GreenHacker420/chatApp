@@ -4,6 +4,7 @@ import AuthImagePattern from "../components/AuthImagePattern";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare } from "lucide-react";
 import toast from "react-hot-toast";
+import config from "../config/env.js";
 
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -41,8 +42,8 @@ const LoginPage = () => {
 
   // ✅ Google Login Handler
   const googleLogin = () => {
-    const apiUrl = "https://gutargu.greenhacker.tech/api/auth";
-    window.location.href = `${apiUrl}/google`;
+    const apiUrl = config.API.BASE_URL;
+    window.location.href = `${apiUrl}/api/auth/google`;
   };
 
   return (

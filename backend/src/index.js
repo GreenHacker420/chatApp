@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.route.js";
 import messageRoutes from "./routes/message.route.js";
 import { app, server } from "./lib/socket.js";
 import passport from "./lib/passport.js";
+import healthRouter from './routes/health.route.js';
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ connectDB()
 // ✅ API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/health", healthRouter);
 
 // ✅ Serve frontend in production
 if (process.env.NODE_ENV === "production") {
