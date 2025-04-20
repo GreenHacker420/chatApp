@@ -1,6 +1,5 @@
 import axios from "axios";
 import toast from "react-hot-toast";
-import config from "../config/env.js";
 
 // Error Messages
 const ERROR_MESSAGES = {
@@ -11,8 +10,8 @@ const ERROR_MESSAGES = {
 
 // Create axios instances for different API endpoints
 export const axiosInstance = axios.create({
-  baseURL: `${config.API.BASE_URL}${config.API.AUTH_PATH}`,
-  timeout: config.API.TIMEOUT,
+  baseURL: '/api/auth',
+  timeout: 15000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -20,8 +19,17 @@ export const axiosInstance = axios.create({
 });
 
 export const messagesApi = axios.create({
-  baseURL: `${config.API.BASE_URL}${config.API.MESSAGES_PATH}`,
-  timeout: config.API.TIMEOUT,
+  baseURL: '/api/messages',
+  timeout: 15000,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+  }
+});
+
+export const usersApi = axios.create({
+  baseURL: '/api/users',
+  timeout: 15000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -61,17 +69,13 @@ const addInterceptors = (instance, name) => {
   // Request interceptor
   instance.interceptors.request.use(
     (config) => {
-      const fullUrl = normalizeUrl(config.baseURL, config.url);
-      config.url = config.url.startsWith('/') ? config.url.slice(1) : config.url;
-      
-      logApiCall('request', {
-        name,
-        url: fullUrl,
-        method: config.method?.toUpperCase(),
-        headers: config.headers,
-        withCredentials: config.withCredentials
-      });
-      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🔹 ${name} Request:`, {
+          url: config.url,
+          method: config.method?.toUpperCase(),
+          headers: config.headers,
+        });
+      }
       return config;
     },
     (error) => {
@@ -83,23 +87,22 @@ const addInterceptors = (instance, name) => {
   // Response interceptor
   instance.interceptors.response.use(
     (response) => {
-      logApiCall('response', {
-        name,
-        url: response.config.url,
-        status: response.status,
-        data: response.data,
-        headers: response.headers
-      });
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ ${name} Response:`, {
+          url: response.config.url,
+          status: response.status,
+          data: response.data,
+        });
+      }
       return response;
     },
     (error) => {
-      const errorDetails = {
+      console.error("🔴 Response error:", {
         name,
         status: error.response?.status,
         data: error.response?.data,
         url: error.config?.url
-      };
-      console.error("🔴 Response error:", errorDetails);
+      });
 
       // Handle different error scenarios
       if (!error.response) {
@@ -123,14 +126,15 @@ const handleAuthError = () => {
   toast.error(ERROR_MESSAGES.SESSION_EXPIRED);
   
   // Only redirect if not already on login page
-  if (!window.location.pathname.includes(config.ROUTES.AUTH.LOGIN)) {
-    window.location.href = config.ROUTES.AUTH.LOGIN;
+  if (!window.location.pathname.includes('/login')) {
+    window.location.href = '/login';
   }
 };
 
 // Add interceptors to instances
 addInterceptors(axiosInstance, 'Auth API');
 addInterceptors(messagesApi, 'Messages API');
+addInterceptors(usersApi, 'Users API');
 
 // For backward compatibility
 export const authApi = axiosInstance;

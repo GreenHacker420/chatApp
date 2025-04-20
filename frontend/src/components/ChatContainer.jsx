@@ -25,7 +25,7 @@ const ChatContainer = () => {
     endGroupCall,
   } = useChatStore();
   
-  const { authUser, socket } = useAuthStore();
+  const { user: authUser, socket } = useAuthStore();
   const messageEndRef = useRef(null);
   const [isTyping, setIsTyping] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -35,8 +35,26 @@ const ChatContainer = () => {
     if (!selectedUser?._id) return;
 
     getMessages(selectedUser._id);
-    subscribeToMessages();
-    markMessagesAsRead(selectedUser._id);
+    const unsubscribe = subscribeToMessages();
+
+    // Handle incoming messages
+    if (socket) {
+      const handleNewMessage = (data) => {
+        const { senderId, message } = data;
+        if (senderId === selectedUser._id) {
+          set((state) => ({
+            messages: [...state.messages, message]
+          }));
+          markMessagesAsRead(selectedUser._id);
+        }
+      };
+
+      socket.on("newMessage", handleNewMessage);
+      return () => {
+        socket.off("newMessage", handleNewMessage);
+        unsubscribe();
+      };
+    }
 
     return () => {
       if (socket) {
@@ -78,7 +96,7 @@ const ChatContainer = () => {
 
   // ✅ Handle "messagesRead" event
   useEffect(() => {
-    if (!socket || !selectedUser) return;
+    if (!socket || !selectedUser || !authUser) return;
 
     const handleMessagesRead = ({ senderId, receiverId }) => {
       if (receiverId === authUser._id && senderId === selectedUser._id) {
@@ -106,6 +124,14 @@ const ChatContainer = () => {
       startGroupCall(selectedGroup._id, selectedGroup.name);
     }
   };
+
+  if (!selectedUser || !authUser) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <p className="text-base-content/70">Select a user to start chatting</p>
+      </div>
+    );
+  }
 
   if (isMessagesLoading) {
     return (
@@ -139,83 +165,84 @@ const ChatContainer = () => {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message._id}
-            className={`chat ${message.senderId === authUser._id ? "chat-end" : "chat-start"}`}
-          >
-            <div className="chat-image avatar">
-              <div className="size-10 rounded-full border">
-                <img
-                  src={
-                    message.senderId === authUser._id
-                      ? authUser.profilePic || "/avatar.png"
-                      : selectedUser.profilePic || "/avatar.png"
-                  }
-                  alt="profile pic"
-                />
+        {messages.map((message) => {
+          const isSentByMe = message.sender?._id === authUser._id || message.senderId === authUser._id;
+          const senderProfilePic = isSentByMe 
+            ? authUser.profilePic || "/avatar.png"
+            : selectedUser.profilePic || "/avatar.png";
+
+          return (
+            <div
+              key={message._id}
+              className={`chat ${isSentByMe ? "chat-end" : "chat-start"}`}
+            >
+              <div className="chat-image avatar">
+                <div className="size-10 rounded-full border">
+                  <img src={senderProfilePic} alt="profile pic" />
+                </div>
+              </div>
+
+              <div className="chat-header mb-1 flex justify-between w-full">
+                <span className="text-xs opacity-50">{formatMessageTime(message.createdAt)}</span>
+                {isSentByMe && message.isRead && (
+                  <span className="text-xs text-green-500">✔ Read</span>
+                )}
+              </div>
+
+              <div className="chat-bubble flex flex-col relative group">
+                {isSentByMe && (
+                  <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="dropdown dropdown-end">
+                      <label tabIndex={0} className="btn btn-xs btn-circle btn-ghost">
+                        <MoreVertical size={14} />
+                      </label>
+                      <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-24">
+                        <li>
+                          <button 
+                            onClick={() => handleDeleteMessage(message._id, false)}
+                            className="text-error flex items-center gap-1"
+                          >
+                            <Trash2 size={14} />
+                            Delete for me
+                          </button>
+                        </li>
+                        <li>
+                          <button 
+                            onClick={() => handleDeleteMessage(message._id, true)}
+                            className="text-error flex items-center gap-1"
+                          >
+                            <Trash2 size={14} />
+                            Delete for everyone
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+                
+                {message.text}
+                {message.image && (
+                  <img 
+                    src={message.image} 
+                    alt="Message attachment" 
+                    className="max-w-xs rounded-lg mt-2"
+                  />
+                )}
+                {message.video && (
+                  <video 
+                    src={message.video} 
+                    controls 
+                    className="max-w-xs rounded-lg mt-2"
+                  />
+                )}
               </div>
             </div>
-
-            <div className="chat-header mb-1 flex justify-between w-full">
-              <span className="text-xs opacity-50">{formatMessageTime(message.createdAt)}</span>
-              {message.senderId === authUser._id && message.isRead && (
-                <span className="text-xs text-green-500">✔ Read</span>
-              )}
-            </div>
-
-            <div className="chat-bubble flex flex-col relative group">
-              {message.senderId === authUser._id && (
-                <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="dropdown dropdown-end">
-                    <label tabIndex={0} className="btn btn-xs btn-circle btn-ghost">
-                      <MoreVertical size={14} />
-                    </label>
-                    <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-24">
-                      <li>
-                        <button 
-                          onClick={() => handleDeleteMessage(message._id, false)}
-                          className="text-error flex items-center gap-1"
-                        >
-                          <Trash2 size={14} />
-                          Delete for me
-                        </button>
-                      </li>
-                      <li>
-                        <button 
-                          onClick={() => handleDeleteMessage(message._id, true)}
-                          className="text-error flex items-center gap-1"
-                        >
-                          <Trash2 size={14} />
-                          Delete for everyone
-                        </button>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-              
-              {message.image && (
-                <img
-                  src={message.image}
-                  alt="Attachment"
-                  className="sm:max-w-[200px] rounded-md mb-2"
-                />
-              )}
-              {message.text && <p>{message.text}</p>}
-            </div>
-          </div>
-        ))}
-
-        {/* ✅ Typing Indicator */}
-        {isTyping && (
-          <div className="text-sm text-gray-500 italic">{selectedUser?.fullName} is typing...</div>
-        )}
-
-        <div ref={messageEndRef} /> {/* ✅ Scroll anchor */}
+          );
+        })}
+        <div ref={messageEndRef} />
       </div>
 
-      <MessageInput />
+      <MessageInput isTyping={isTyping} />
     </div>
   );
 };

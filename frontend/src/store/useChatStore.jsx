@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import toast from "react-hot-toast";
-import { axiosInstance } from "../lib/axios";
+import { axiosInstance, messagesApi, usersApi } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
+import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../constants/messages";
+import { socket } from "../socket";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -12,6 +14,7 @@ export const useChatStore = create((set, get) => ({
   isMessagesLoading: false,
   hasMoreMessages: true, // ✅ Used for pagination
   currentPage: 1, // ✅ Track the current page of messages
+  notifications: [], // ✅ Store message notifications
 
   // Group call state
   isGroupCallActive: false,
@@ -26,37 +29,47 @@ export const useChatStore = create((set, get) => ({
   groupCallParticipants: [],
   groupCallInvitations: [],
 
-  // ✅ Fetch users with error handling
-  getUsers: async () => {
-    set({ isUsersLoading: true });
-    try {
-      const res = await axiosInstance.get("/messages/users");
-      console.log("🔍 Users fetched:", res.data); // ✅ Debugging fetched users
-  
-      if (!Array.isArray(res.data.users)) {
-        console.error("🚨 Unexpected response format:", res.data);
-        toast.error("Invalid users data received.");
-        return;
-      }
-  
-      set({ users: res.data.users });
-    } catch (error) {
-      console.error("❌ Failed to fetch users:", error);
-      toast.error(error.response?.data?.message || "Failed to fetch users");
-    } finally {
-      set({ isUsersLoading: false });
+  error: null,
+
+  setSelectedUser: (user) => {
+    set({ selectedUser: user });
+    // Clear notifications for this user when selected
+    if (user) {
+      get().clearNotifications(user._id);
     }
   },
 
-  // ✅ Load messages with pagination (infinite scrolling support)
+  getUsers: async () => {
+    try {
+      set({ isUsersLoading: true, error: null });
+      const response = await usersApi.get("/");
+      
+      // Sort users: online first, then by last message time
+      const sortedUsers = response.data.sort((a, b) => {
+        if (a.isOnline !== b.isOnline) {
+          return b.isOnline - a.isOnline;
+        }
+        const aLastMessage = a.lastMessage?.createdAt || 0;
+        const bLastMessage = b.lastMessage?.createdAt || 0;
+        return new Date(bLastMessage) - new Date(aLastMessage);
+      });
+      
+      set({ users: sortedUsers, isUsersLoading: false });
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      set({ error: ERROR_MESSAGES.FETCH_USERS, isUsersLoading: false });
+      toast.error(ERROR_MESSAGES.FETCH_USERS);
+    }
+  },
+
+  // ✅ Load messages with pagination
   getMessages: async (userId, page = 1) => {
     set({ isMessagesLoading: true });
 
     try {
-      const res = await axiosInstance.get(`/messages/${userId}?page=${page}`);
+      const res = await messagesApi.get(`/${userId}?page=${page}`);
       
       set((state) => {
-        // If it's the first page, replace all messages
         if (page === 1) {
           return {
             messages: res.data.messages,
@@ -65,7 +78,6 @@ export const useChatStore = create((set, get) => ({
           };
         }
 
-        // For subsequent pages, filter out any duplicate messages before adding new ones
         const existingMessageIds = new Set(state.messages.map(msg => msg._id));
         const newMessages = res.data.messages.filter(msg => !existingMessageIds.has(msg._id));
 
@@ -76,7 +88,6 @@ export const useChatStore = create((set, get) => ({
         };
       });
 
-      // Mark messages as read when opening the chat
       if (page === 1) {
         await get().markMessagesAsRead(userId);
       }
@@ -91,7 +102,7 @@ export const useChatStore = create((set, get) => ({
   markMessagesAsRead: async (userId) => {
     if (!userId) return;
     try {
-      await axiosInstance.post(`/messages/mark-as-read/${userId}`);
+      await messagesApi.post(`/mark-as-read/${userId}`);
       set((state) => ({
         unreadMessages: { ...state.unreadMessages, [userId]: 0 },
       }));
@@ -100,100 +111,170 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // ✅ Send messages and update state
-  sendMessage: async (messageData) => {
-    const { selectedUser, messages } = get();
+  addNotification: (message, userId) => {
+    const { notifications, selectedUser } = get();
+    // Only add notification if chat is not currently open
+    if (!selectedUser || selectedUser._id !== userId) {
+      set((state) => ({
+        notifications: [...state.notifications, message],
+        unreadMessages: {
+          ...state.unreadMessages,
+          [userId]: (state.unreadMessages[userId] || 0) + 1
+        }
+      }));
+      // Show toast notification
+      toast.custom((t) => (
+        <div className="bg-base-100 shadow-lg rounded-lg p-4 flex items-center gap-3">
+          <div className="avatar">
+            <div className="w-12 rounded-full">
+              <img src={message.sender.profilePic || "/default-avatar.png"} alt="sender" />
+            </div>
+          </div>
+          <div>
+            <p className="font-semibold">{message.sender.username}</p>
+            <p className="text-sm text-base-content/70">{message.content}</p>
+          </div>
+        </div>
+      ));
+    }
+  },
+
+  clearNotifications: (userId) => {
+    set((state) => ({
+      notifications: state.notifications.filter(n => n.sender._id !== userId),
+      unreadMessages: {
+        ...state.unreadMessages,
+        [userId]: 0
+      }
+    }));
+  },
+
+  sendMessage: async (content) => {
+    const { selectedUser } = get();
     if (!selectedUser) return;
 
-    try {
-      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      
-      // Update messages state only if the message isn't already in the list
-      set((state) => {
-        const messageExists = state.messages.some(msg => msg._id === res.data._id);
-        if (messageExists) return state;
+    let tempMessage = null;
 
-        return {
-          messages: [...state.messages, res.data],
-        };
-      });
+    try {
+      // Create message data - handle both string and object content
+      const messageData = {
+        text: typeof content === 'string' ? content : content.text || content.content || '',
+        receiverId: content.receiverId || selectedUser._id
+      };
+
+      if (content.image) {
+        messageData.image = content.image;
+      }
+      if (content.video) {
+        messageData.video = content.video;
+      }
+
+      // Optimistic update
+      tempMessage = {
+        _id: Date.now().toString(),
+        text: messageData.text,
+        sender: useAuthStore.getState().user,
+        receiver: messageData.receiverId,
+        createdAt: new Date().toISOString(),
+        isOptimistic: true
+      };
+
+      set((state) => ({
+        messages: [...state.messages, tempMessage]
+      }));
+
+      console.log('🔹 Sending message:', messageData);
+
+      // Send message using messagesApi
+      const response = await messagesApi.post('', messageData);
+
+      console.log('✅ Message sent successfully:', response.data);
+
+      const data = response.data;
+      
+      // Replace optimistic message with real one
+      set((state) => ({
+        messages: state.messages.map(msg => 
+          msg._id === tempMessage._id ? data : msg
+        )
+      }));
+
+      // Update last message in users list
+      set((state) => ({
+        users: state.users.map(user => 
+          user._id === selectedUser._id 
+            ? { ...user, lastMessage: data }
+            : user
+        )
+      }));
+
+      return data; // Return the message data for socket emission
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to send message");
+      console.error("Failed to send message:", error);
+      // Remove optimistic message on error
+      if (tempMessage) {
+        set((state) => ({
+          messages: state.messages.filter(msg => msg._id !== tempMessage._id)
+        }));
+      }
+      toast.error(ERROR_MESSAGES.SEND_MESSAGE);
+      throw error;
     }
   },
 
   // ✅ Delete a message
   deleteMessage: async (messageId, deleteForEveryone = false) => {
-    const { selectedUser, messages, socket } = get();
+    const { selectedUser } = get();
     if (!selectedUser) return;
 
     try {
-      await axiosInstance.delete(`/messages/${messageId}`, {
+      await messagesApi.delete(`/${messageId}`, {
         data: { deleteForEveryone }
       });
       
-      // Update local state
       set((state) => ({
         messages: state.messages.filter((msg) => msg._id !== messageId),
       }));
 
-      // Notify the other user via socket
       if (socket) {
         socket.emit("deleteMessage", { messageId, receiverId: selectedUser._id, deleteForEveryone });
       }
 
-      toast.success(deleteForEveryone ? "Message deleted for everyone" : "Message deleted for you");
+      toast.success(deleteForEveryone ? SUCCESS_MESSAGES.MESSAGE_DELETED_EVERYONE : SUCCESS_MESSAGES.MESSAGE_DELETED);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to delete message");
+      toast.error(error.response?.data?.message || ERROR_MESSAGES.DEFAULT);
     }
   },
 
-  // ✅ Real-time updates for incoming messages
   subscribeToMessages: () => {
-    const { selectedUser } = get();
-    const socket = useAuthStore.getState().socket;
-
-    if (!socket) {
-      console.warn("⚠️ Socket not available for message subscription");
-      return;
-    }
-
-    // Debounce message updates
-    let messageUpdateTimeout;
-
-    socket.off("newMessage");
-    socket.on("newMessage", (newMessage) => {
-      // Clear any pending updates
-      if (messageUpdateTimeout) {
-        clearTimeout(messageUpdateTimeout);
+    socket.on("newMessage", (message) => {
+      const { selectedUser } = get();
+      
+      // Update messages if chat is open
+      if (selectedUser && (
+        message.sender._id === selectedUser._id || 
+        message.receiver === selectedUser._id
+      )) {
+        set((state) => ({
+          messages: [...state.messages, message]
+        }));
+      } else {
+        // Add notification if chat is not open
+        get().addNotification(message, message.sender._id);
       }
 
-      // Debounce the state update
-      messageUpdateTimeout = setTimeout(() => {
-        set((state) => {
-          // Prevent duplicate messages
-          const messageExists = state.messages.some(msg => msg._id === newMessage._id);
-          if (messageExists) return state;
-
-          return {
-            messages: [...state.messages, newMessage],
-          };
-        });
-      }, 100);
-    });
-
-    socket.off("messageDeleted");
-    socket.on("messageDeleted", ({ messageId, deleteForEveryone }) => {
+      // Update last message in users list
       set((state) => ({
-        messages: state.messages.filter((msg) => msg._id !== messageId),
+        users: state.users.map(user => 
+          user._id === message.sender._id 
+            ? { ...user, lastMessage: message }
+            : user
+        )
       }));
     });
 
-    // Cleanup on unsubscribe
     return () => {
-      if (messageUpdateTimeout) {
-        clearTimeout(messageUpdateTimeout);
-      }
+      socket.off("newMessage");
     };
   },
 
@@ -203,17 +284,6 @@ export const useChatStore = create((set, get) => ({
     if (!selectedUser || !hasMoreMessages) return;
 
     await get().getMessages(selectedUser._id, currentPage + 1);
-  },
-
-  setSelectedUser: (selectedUser) => {
-    // Clear messages before loading new ones to prevent flickering
-    set({ 
-      selectedUser, 
-      messages: [], 
-      currentPage: 1, 
-      hasMoreMessages: true,
-      isMessagesLoading: true // Set loading state immediately
-    });
   },
 
   // Start group call
@@ -238,25 +308,22 @@ export const useChatStore = create((set, get) => ({
     const authUser = useAuthStore.getState().authUser;
     const { activeCall } = get();
     
-    // Prevent multiple call attempts
     if (activeCall) {
       toast.error("You're already in a call");
       return;
     }
 
     if (!socket) {
-      toast.error("Unable to start call. Socket connection not available.");
+      toast.error(ERROR_MESSAGES.SOCKET_CONNECTION);
       return;
     }
 
     try {
-      // Request media permissions first
       const stream = await navigator.mediaDevices.getUserMedia({
         video: isVideo,
         audio: true
       });
 
-      // Set call state before emitting to prevent flickering
       set({
         isCallActive: true,
         activeCall: {
@@ -265,12 +332,11 @@ export const useChatStore = create((set, get) => ({
           stream,
           isOutgoing: true,
           isReceiverOnline: isUserOnline,
-          startTime: null, // Initialize as null until call is accepted
-          connectedAt: null // New field to track when call is actually connected
+          startTime: null,
+          connectedAt: null
         }
       });
 
-      // Emit call request only if user is online
       if (isUserOnline) {
         socket.emit("initiateCall", {
           callerId: authUser._id,
@@ -278,14 +344,13 @@ export const useChatStore = create((set, get) => ({
           receiverId: userId,
           isVideo
         });
-        toast.success("Ringing...");
+        toast.success(SUCCESS_MESSAGES.CALL_INITIATED);
       } else {
-        toast.info("User is offline. They will be notified when they come online.");
+        toast.info(SUCCESS_MESSAGES.USER_OFFLINE);
       }
     } catch (error) {
       console.error("Error starting call:", error);
-      toast.error("Failed to access camera/microphone");
-      // Clean up call state if media access fails
+      toast.error(ERROR_MESSAGES.MEDIA_ACCESS);
       set({
         isCallActive: false,
         activeCall: null

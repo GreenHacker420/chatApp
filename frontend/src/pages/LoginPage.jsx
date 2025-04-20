@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import AuthImagePattern from "../components/AuthImagePattern";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare } from "lucide-react";
 import toast from "react-hot-toast";
 import config from "../config/env.js";
@@ -14,6 +14,7 @@ const LoginPage = () => {
   });
   const [error, setError] = useState(null); // ✅ Store login errors
   const { login, isLoggingIn } = useAuthStore();
+  const navigate = useNavigate();
 
   // ✅ Validate Input Before Submitting
   const validateForm = () => {
@@ -34,7 +35,7 @@ const LoginPage = () => {
     if (!validateForm()) return;
 
     try {
-      await login(formData);
+      await login(formData, navigate);
     } catch (error) {
       setError("Invalid email or password."); // ✅ Show error to user
     }

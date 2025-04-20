@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import { connectDB } from "./lib/db.js";
 import authRoutes from "./routes/auth.route.js";
 import messageRoutes from "./routes/message.route.js";
+import adminRoutes from "./routes/admin.route.js";
+import usersRoutes from "./routes/users.route.js";
 import { app, server } from "./lib/socket.js";
 import passport from "./lib/passport.js";
 import healthRouter from './routes/health.route.js';
@@ -44,7 +46,9 @@ connectDB()
 
 // ✅ API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/health", healthRouter);
 
 // ✅ Serve frontend in production

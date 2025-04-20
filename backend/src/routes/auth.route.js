@@ -1,5 +1,5 @@
 import express from "express";
-import passport from "../lib/passport.js"; // ✅ Import Passport Config
+import passport from "passport";
 import {
   checkAuth,
   login,
@@ -9,70 +9,87 @@ import {
   verifyEmail,
   resendVerificationEmail,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  changePassword,
+  updatePassword,
+  deleteAccount,
+  getProfile
 } from "../controllers/auth.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
-import { rateLimit } from "express-rate-limit"; // ✅ Prevents spam on email verification
-import { generateToken } from "../lib/utils.js"; // ✅ Ensure correct path
-import { config } from "../config/env.js"; // ✅ Import config from correct path
-
+import { rateLimiter, loginRateLimiter } from "../middleware/rateLimiter.middleware.js";
+import { generateToken } from "../lib/utils.js";
+import config from "../config/env.js";
 
 const router = express.Router();
 
-// ✅ Rate Limiter for Email Verification Resend (Prevents Spam)
-const emailRateLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 3, // Allow max 3 requests per 5 min
-  message: "Too many requests. Please wait before resending verification email.",
-});
-
-// ✅ Public Routes
+// Public routes
 router.post("/signup", signup);
-router.post("/login", login);
-router.post("/logout", logout);
-router.get("/verify/:id/:token", verifyEmail);
-router.post("/resend-verification", emailRateLimiter, resendVerificationEmail);
+router.post("/login", loginRateLimiter, login);
 
-// ✅ Forgot Password
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+// This should be protected but allow unauthenticated access
+router.get("/check", (req, res, next) => {
+  // If there's no user, just return null instead of 401
+  if (!req.cookies?.jwt) {
+    return res.status(200).json(null);
+  }
+  next();
+}, checkAuth);
 
-// ✅ Google OAuth Routes
-router.get("/google", passport.authenticate("google", { 
-  scope: ["openid", "profile", "email"],
+router.post("/resend-verification", rateLimiter, resendVerificationEmail);
+router.get("/verify-email/:token", verifyEmail);
+router.post("/forgot-password", rateLimiter, forgotPassword);
+router.post("/reset-password/:token", resetPassword);
+
+// Protected routes
+router.get("/profile", protectRoute, getProfile);
+router.put("/profile", protectRoute, updateProfile);
+router.put("/password", protectRoute, changePassword);
+router.put("/update-password", protectRoute, updatePassword);
+router.delete("/delete", protectRoute, deleteAccount);
+
+// Google OAuth routes
+router.get("/google", passport.authenticate("google", {
+  scope: ["profile", "email"],
   prompt: "select_account"
 }));
 
-router.get(
-  "/google/callback",
+router.get("/google/callback", 
   passport.authenticate("google", { 
-    session: false, 
-    failureRedirect: `${process.env.CLIENT_URL || config.CLIENT.URL}/login?error=google_auth_failed` 
+    session: false,
+    failureRedirect: config.isDevelopment 
+      ? "http://localhost:5173/login?error=google_auth_failed"
+      : `${config.CLIENT.URL}/login?error=google_auth_failed`
   }),
   (req, res) => {
     if (!req.user) {
-      return res.redirect(`${process.env.CLIENT_URL || config.CLIENT.URL}/login?error=OAuthFailed`);
+      const redirectUrl = config.isDevelopment
+        ? "http://localhost:5173/login?error=OAuthFailed"
+        : `${config.CLIENT.URL}/login?error=OAuthFailed`;
+      return res.redirect(redirectUrl);
     }
 
-    // ✅ Store JWT in HTTP-only cookie
+    // Store JWT in HTTP-only cookie
     res.cookie("jwt", generateToken(req.user._id), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      secure: !config.isDevelopment,
+      sameSite: config.isDevelopment ? "lax" : "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    res.redirect(`${process.env.CLIENT_URL || config.CLIENT.URL}/google-auth-success`);
+    // Redirect to home page after successful login
+    const successRedirect = config.isDevelopment
+      ? "http://localhost:5173"
+      : config.CLIENT.URL;
+    
+    res.redirect(successRedirect);
   }
 );
-// ✅ Protected Routes
-router.put("/update-profile", protectRoute, updateProfile);
-router.get("/check", protectRoute, checkAuth);
 
-// ✅ Logout Route - Clears Cookie Properly
-router.post("/logout", (req, res) => {
-  res.clearCookie("jwt", { httpOnly: true, sameSite: "Strict", secure: process.env.NODE_ENV === "production" });
-  res.status(200).json({ message: "Logged out successfully" });
+router.get("/test", protectRoute, (req, res) => {
+  res.json({
+    message: "Authentication successful!",
+    user: req.user
+  });
 });
 
 export default router;

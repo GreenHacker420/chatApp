@@ -11,36 +11,42 @@ import GoogleAuthSuccess from "./pages/GoogleAuthSuccess";
 import Navbar from "./components/Navbar";
 import CallInterface from "./components/CallInterface";
 import IncomingCallNotification from "./components/IncomingCallNotification";
+import { useEffect } from "react";
 
 const App = () => {
-  const { authUser } = useAuthStore();
+  const { user, checkAuth } = useAuthStore();
   const { isCallActive, isIncomingCall } = useChatStore();
+
+  // Check authentication status on app load
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   return (
     <div>
       <Toaster position="top-center" reverseOrder={false} />
-      {authUser && <Navbar />}
+      {user && <Navbar />}
       
       <Routes>
         <Route
           path="/"
-          element={authUser ? <HomePage /> : <Navigate to="/login" />}
+          element={user ? <HomePage /> : <Navigate to="/login" />}
         />
         <Route
           path="/login"
-          element={!authUser ? <LoginPage /> : <Navigate to="/" />}
+          element={!user ? <LoginPage /> : <Navigate to="/" />}
         />
         <Route
           path="/signup"
-          element={!authUser ? <SignUpPage /> : <Navigate to="/" />}
+          element={!user ? <SignUpPage /> : <Navigate to="/" />}
         />
         <Route
           path="/settings"
-          element={authUser ? <SettingsPage /> : <Navigate to="/login" />}
+          element={user ? <SettingsPage /> : <Navigate to="/login" />}
         />
         <Route
           path="/profile"
-          element={authUser ? <ProfilePage /> : <Navigate to="/login" />}
+          element={user ? <ProfilePage /> : <Navigate to="/login" />}
         />
         <Route path="/google-auth-success" element={<GoogleAuthSuccess />} />
       </Routes>

@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import User from "../models/user.model.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -16,12 +17,15 @@ const io = new Server(server, {
       ? process.env.FRONTEND_URL 
       : "http://localhost:5173",
     credentials: true,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   },
-  pingTimeout: 30000, // ✅ Increased timeout to prevent unnecessary disconnects
-  pingInterval: 10000, // ✅ Send a ping every 10s to keep connection alive
+  pingTimeout: 60000, // ✅ Increased timeout to prevent unnecessary disconnects
+  pingInterval: 25000, // ✅ Send a ping every 25s to keep connection alive
+  transports: ['websocket', 'polling'], // ✅ Allow fallback to polling
 });
 
-// ✅ Store online users
+// ✅ Store online users with their details
 const userSocketMap = new Map(); 
 
 // Store active group calls
@@ -31,15 +35,30 @@ export function getReceiverSocketId(userId) {
   return userSocketMap.get(userId);
 }
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   console.log("✅ A user connected:", socket.id);
 
-  const userId = socket.handshake.query.userId;
+  // Get userId from query params or auth
+  const userId = socket.handshake.query.userId || socket.handshake.auth.userId;
   
   if (userId) {
-    userSocketMap.set(userId, socket.id);
-    socket.data.userId = userId;
-    io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+    try {
+      // Get user details from database
+      const user = await User.findById(userId).select('fullName email');
+      if (user) {
+        console.log(`✅ User connected: ${user.fullName} (${user.email}) with socket ${socket.id}`);
+        userSocketMap.set(userId, socket.id);
+        socket.data.userId = userId;
+        socket.data.userName = user.fullName;
+        io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+      } else {
+        console.warn(`⚠️ Socket connected with invalid userId: ${userId}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error fetching user details: ${error.message}`);
+    }
+  } else {
+    console.warn("⚠️ Socket connected without userId:", socket.id);
   }
 
   // ✅ Handle real-time messaging
@@ -94,8 +113,9 @@ io.on("connection", (socket) => {
   });
 
   // ✅ Handle user disconnection properly
-  socket.on("disconnect", () => {
-    console.log("❌ User disconnected:", socket.id);
+  socket.on("disconnect", (reason) => {
+    const userName = socket.data.userName || 'Unknown User';
+    console.log(`❌ User disconnected: ${userName} (${socket.id}), reason: ${reason}`);
     const storedUserId = socket.data.userId;
     if (storedUserId) {
       userSocketMap.delete(storedUserId);
@@ -105,11 +125,13 @@ io.on("connection", (socket) => {
 
   // ✅ Handle WebSocket reconnections
   socket.on("reconnect_attempt", () => {
-    console.log(`🔄 Reconnecting attempt for user: ${socket.data.userId}`);
+    const userName = socket.data.userName || 'Unknown User';
+    console.log(`🔄 Reconnecting attempt for user: ${userName} (${socket.data.userId})`);
   });
 
-  socket.on("reconnect", () => {
-    console.log(`🔄 User reconnected: ${socket.id}`);
+  socket.on("reconnect", async () => {
+    const userName = socket.data.userName || 'Unknown User';
+    console.log(`🔄 User reconnected: ${userName} (${socket.id})`);
     if (socket.data.userId) {
       userSocketMap.set(socket.data.userId, socket.id);
       io.emit("getOnlineUsers", Array.from(userSocketMap.keys())); // ✅ Sync online users
@@ -118,7 +140,8 @@ io.on("connection", (socket) => {
 
   // ✅ Catch socket errors
   socket.on("error", (err) => {
-    console.error("⚠️ Socket error:", err.message);
+    const userName = socket.data.userName || 'Unknown User';
+    console.error(`⚠️ Socket error for ${userName}:`, err.message);
   });
 
   // Handle group call events

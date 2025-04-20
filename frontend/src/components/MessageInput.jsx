@@ -54,11 +54,22 @@ const MessageInput = () => {
     if (!text.trim() && !mediaPreview) return;
 
     try {
-      await sendMessage({
+      const messageData = {
         text: text.trim(),
         image: mediaType === "image" ? mediaPreview : null,
         video: mediaType === "video" ? mediaPreview : null,
-      });
+      };
+
+      const response = await sendMessage(messageData);
+
+      // ✅ Emit socket event for real-time message
+      if (socket && selectedUser && response) {
+        socket.emit("sendMessage", {
+          senderId: response.sender._id,
+          receiverId: selectedUser._id,
+          message: response
+        });
+      }
 
       // ✅ Emit "stopTyping" event when message is sent
       if (socket && selectedUser) {
@@ -70,6 +81,7 @@ const MessageInput = () => {
       removeMedia();
     } catch (error) {
       console.error("Failed to send message:", error);
+      toast.error("Failed to send message");
     }
   };
 

@@ -1,67 +1,64 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../store/useAuthStore";
-import { useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
+import { toast } from "react-hot-toast";
+import { ERROR_MESSAGES } from "../constants/messages";
 
 const GoogleAuthSuccess = () => {
-  const { checkAuth, handleGoogleAuthSuccess } = useAuthStore();
   const navigate = useNavigate();
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [searchParams] = useSearchParams();
+  const { handleGoogleAuthSuccess, user } = useAuthStore();
 
   useEffect(() => {
-    const authenticateUser = async () => {
+    const handleAuth = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-        console.log("🔹 Starting Google authentication process...");
+        console.log('🔹 Starting Google auth success flow');
         
-        // First check auth status
-        console.log("🔹 Calling checkAuth...");
-        const authData = await checkAuth();
-        console.log("✅ checkAuth completed:", authData);
-        
-        if (authData) {
-          console.log("✅ Google authentication successful, redirecting to home...");
-          toast.success("Google login successful!");
-          navigate("/", { replace: true });
+        // Check for error from Google OAuth
+        const error = searchParams.get('error');
+        if (error) {
+          console.error('❌ Google OAuth error:', error);
+          toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
+          navigate('/login');
+          return;
+        }
+
+        console.log('🔹 Calling handleGoogleAuthSuccess');
+        const success = await handleGoogleAuthSuccess();
+        console.log('✅ Google auth success result:', success);
+
+        if (success) {
+          console.log('✅ Auth successful, redirecting to home');
+          // Force a hard redirect to home page
+          window.location.href = '/';
         } else {
-          console.error("❌ No auth data returned");
-          throw new Error("Authentication failed - no user data returned");
+          console.error('❌ Google auth success handler failed');
+          toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
+          navigate('/login');
         }
       } catch (error) {
-        console.error("❌ Google authentication failed:", error);
-        setError(error.message || "Authentication failed");
-        toast.error("Google login failed. Please try again.");
-        navigate("/login", { replace: true });
-      } finally {
-        setIsLoading(false);
+        console.error('❌ Google auth error:', error);
+        toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
+        navigate('/login');
       }
     };
 
-    authenticateUser();
-  }, [navigate, checkAuth]);
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen">
-        <p className="text-error mb-4">{error}</p>
-        <button 
-          className="btn btn-primary"
-          onClick={() => navigate("/login")}
-        >
-          Return to Login
-        </button>
-      </div>
-    );
-  }
+    // Only run the auth flow if we don't have a user yet
+    if (!user) {
+      handleAuth();
+    } else {
+      console.log('✅ User already authenticated, redirecting to home');
+      window.location.href = '/';
+    }
+  }, [navigate, searchParams, handleGoogleAuthSuccess, user]);
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen">
-      <div className="loading loading-spinner loading-lg mb-4"></div>
-      <p className="text-lg">
-        {isLoading ? "Authenticating..." : "Redirecting..."}
-      </p>
+    <div className="flex items-center justify-center min-h-screen bg-base-200">
+      <div className="text-center p-8 bg-base-100 rounded-lg shadow-lg">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-lg text-base-content/80">Processing authentication...</p>
+        <p className="text-sm text-base-content/60 mt-2">Please wait while we complete your sign-in</p>
+      </div>
     </div>
   );
 };

@@ -43,6 +43,11 @@ export const protectRoute = async (req, res, next) => {
     const token = req.cookies?.jwt; // ✅ Ensure cookies exist before accessing
 
     if (!token) {
+      // For the check endpoint, return null instead of 401
+      if (req.path === '/check') {
+        req.user = null;
+        return next();
+      }
       return res.status(401).json({ message: "Not authenticated" }); // ✅ Properly return 401 Unauthorized
     }
 
@@ -64,6 +69,14 @@ export const protectRoute = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("❌ Token validation error:", error.message);
+    // For the check endpoint, return null instead of 401
+    if (req.path === '/check') {
+      req.user = null;
+      return next();
+    }
     return res.status(401).json({ message: "Unauthorized" }); // ✅ Ensure proper 401 response
   }
 };
+
+// Alias for backward compatibility
+export const protect = protectRoute;

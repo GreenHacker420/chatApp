@@ -2,6 +2,7 @@ import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
 import cloudinary from "../lib/cloudinary.js";
+import { ApiError, ApiResponse } from "../utils/apiResponse.js";
 
 // ✅ Get Messages with Pagination & Mark as Read
 export const getMessages = async (req, res) => {
@@ -96,9 +97,12 @@ export const getUsersForSidebar = async (req, res) => {
 // ✅ Send Message (Supports Image & Video)
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, video } = req.body;
-    const { id: receiverId } = req.params;
+    const { content, receiverId, image, video } = req.body;
     const senderId = req.user._id;
+
+    if (!receiverId) {
+      return res.status(400).json({ error: "Receiver ID is required" });
+    }
 
     let mediaUrl = null;
     let mediaType = null;
@@ -132,13 +136,14 @@ export const sendMessage = async (req, res) => {
     const newMessage = new Message({
       senderId,
       receiverId,
-      text,
+      content,
       image: mediaType === "image" ? mediaUrl : null,
       video: mediaType === "video" ? mediaUrl : null,
       isRead: false,
     });
 
     await newMessage.save();
+    await newMessage.populate("senderId", "fullName profilePic");
 
     // ✅ Notify receiver in real-time
     const receiverSocketId = getReceiverSocketId(receiverId);
@@ -176,46 +181,48 @@ export const markMessagesAsRead = async (req, res) => {
   }
 };
 
-// Delete message for me or for everyone
+// Delete message (for me or for everyone)
 export const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const { deleteForEveryone } = req.body;
     const userId = req.user._id;
 
-    // Find the message
     const message = await Message.findById(messageId);
-    
     if (!message) {
-      return res.status(404).json({ error: "Message not found" });
+      throw new ApiError(404, "Message not found");
     }
 
-    // Check if the user is the sender of the message
-    if (message.senderId.toString() !== userId.toString()) {
-      return res.status(403).json({ error: "You can only delete your own messages" });
+    // Check if user is the sender or an admin
+    const isSender = message.senderId.toString() === userId.toString();
+    const isAdmin = await User.findById(userId).then(user => user?.role === 'admin');
+
+    if (!isSender && !isAdmin) {
+      throw new ApiError(403, "You don't have permission to delete this message");
     }
 
     if (deleteForEveryone) {
+      // Only sender or admin can delete for everyone
+      if (!isSender && !isAdmin) {
+        throw new ApiError(403, "Only the sender or admin can delete a message for everyone");
+      }
+      
       // Delete for everyone
       message.isDeletedForEveryone = true;
-      await message.save();
-
-      // Notify all receivers that a message was deleted
-      const receiverSocketId = getReceiverSocketId(message.receiverId);
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("messageDeleted", { messageId, deleteForEveryone: true });
-      }
+      message.deletedFor = [];
     } else {
       // Delete for me only
       if (!message.deletedFor.includes(userId)) {
         message.deletedFor.push(userId);
-        await message.save();
       }
     }
 
-    res.status(200).json({ message: "Message deleted successfully" });
+    await message.save();
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, null, "Message deleted successfully"));
   } catch (error) {
-    console.error("Error in deleteMessage:", error.message);
-    res.status(500).json({ error: "Internal server error" });
+    throw new ApiError(500, error?.message || "Error while deleting message");
   }
 };

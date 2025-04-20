@@ -11,7 +11,7 @@ router.get("/users", protectRoute, getUsersForSidebar);
 router.get("/:id", protectRoute, getMessages); 
 
 // ✅ Send a message
-router.post("/send/:id", protectRoute, sendMessage);
+router.post("/", protectRoute, sendMessage);
 
 router.post("/mark-as-read/:id", protectRoute, markMessagesAsRead);
 

@@ -179,7 +179,7 @@ export const updateProfile = async (req, res) => {
 export const checkAuth = async (req, res) => {
   try {
     if (!req.user) {
-      return res.status(401).json({ message: "Not authenticated." });
+      return res.status(200).json(null);
     }
 
     res.status(200).json(req.user);
@@ -309,6 +309,104 @@ export const resetPassword = async (req, res) => {
     res.status(200).json({ message: "Password reset successful." });
   } catch (error) {
     console.error("Reset Password Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Change Password
+export const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user._id;
+
+    const user = await User.findById(userId).select("+password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const isPasswordCorrect = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordCorrect) {
+      return res.status(400).json({ message: "Current password is incorrect." });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters long." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.status(200).json({ message: "Password changed successfully." });
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Update Password
+export const updatePassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    const userId = req.user._id;
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters long." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.status(200).json({ message: "Password updated successfully." });
+  } catch (error) {
+    console.error("Update Password Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Delete Account
+export const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    await User.findByIdAndDelete(userId);
+    res.clearCookie("jwt", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      expires: new Date(0),
+    });
+
+    res.status(200).json({ message: "Account deleted successfully." });
+  } catch (error) {
+    console.error("Delete Account Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Get Profile
+export const getProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    res.status(200).json(user);
+  } catch (error) {
+    console.error("Get Profile Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };

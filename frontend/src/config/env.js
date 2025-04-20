@@ -26,9 +26,10 @@ export const config = {
     URL: isDevelopment ? BACKEND_URLS.DEVELOPMENT : BACKEND_URLS.PRODUCTION,
     CONFIG: {
       withCredentials: true,
-      transports: ['websocket'],
-      reconnectionAttempts: 5,
+      transports: ['websocket', 'polling'], // Allow fallback to polling
+      reconnectionAttempts: 10, // Increase reconnection attempts
       reconnectionDelay: 1000,
+      timeout: 20000, // Increase timeout
     }
   },
 
