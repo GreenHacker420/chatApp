@@ -104,9 +104,15 @@ const Sidebar = () => {
               >
                 <div className="relative mx-auto lg:mx-0">
                   <img
-                    src={user?.profilePic || "/avatar.png"}
+                    src={user?.profilePic && !user.profilePic.includes("Default_ProfilePic.png")
+                      ? user.profilePic
+                      : "/avatar.png"}
                     alt={user?.fullName || "Unknown"}
                     className="size-12 object-cover rounded-full"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = "/avatar.png";
+                    }}
                   />
                   {onlineUsers.includes(user._id) && (
                     <span className="absolute bottom-0 right-0 size-3 bg-green-500 rounded-full ring-2 ring-zinc-900" />
@@ -125,15 +131,15 @@ const Sidebar = () => {
                     {onlineUsers.includes(user._id) ? "Online" : "Offline"}
                   </div>
                 </div>
-                <button
-                  className="hidden lg:block"
+                <div
+                  className="hidden lg:block cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveMenu(activeMenu === user._id ? null : user._id);
                   }}
                 >
                   <MoreVertical className="w-5 h-5 text-gray-500" />
-                </button>
+                </div>
               </button>
 
               {/* User action menu */}

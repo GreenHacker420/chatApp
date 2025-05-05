@@ -24,6 +24,13 @@ const ProfilePage = () => {
     console.error("Failed to load profile image, using default");
   };
 
+  // Check if profile image is the missing Cloudinary image
+  useEffect(() => {
+    if (profileImage && profileImage.includes("Default_ProfilePic.png")) {
+      setProfileImage("/avatar.png");
+    }
+  }, [profileImage]);
+
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;

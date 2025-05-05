@@ -8,11 +8,14 @@ import SignUpPage from "./pages/SignUpPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
 import UserProfilePage from "./pages/UserProfilePage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import GoogleAuthSuccess from "./pages/GoogleAuthSuccess";
 import Navbar from "./components/Navbar";
 import CallInterface from "./components/CallInterface";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import { useEffect } from "react";
+import { connectSocket } from "./socket.js";
 
 const App = () => {
   const { user, checkAuth, isLoading } = useAuthStore();
@@ -33,8 +36,7 @@ const App = () => {
         const { user } = JSON.parse(persistedState);
         if (user?._id) {
           console.log("🔹 Found persisted user, connecting socket");
-          // Import the connectSocket function
-          const { connectSocket } = require('./socket.js');
+          // Use the imported connectSocket function
           connectSocket(user._id);
         }
       } catch (error) {
@@ -102,6 +104,14 @@ const App = () => {
           element={user ? <UserProfilePage /> : <Navigate to="/login" />}
         />
         <Route path="/google-auth-success" element={<GoogleAuthSuccess />} />
+        <Route
+          path="/forgot-password"
+          element={!user ? <ForgotPasswordPage /> : <Navigate to="/" />}
+        />
+        <Route
+          path="/reset-password/:token"
+          element={!user ? <ResetPasswordPage /> : <Navigate to="/" />}
+        />
       </Routes>
 
       {/* Call-related components */}

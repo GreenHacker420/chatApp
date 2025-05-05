@@ -76,9 +76,13 @@ io.on("connection", async (socket) => {
 
   // ✅ Notify sender when a message is read
   socket.on("messageRead", ({ senderId, receiverId }) => {
+    console.log(`Socket messageRead event: sender=${senderId}, receiver=${receiverId}`);
     const senderSocketId = getReceiverSocketId(senderId);
     if (senderSocketId) {
-      io.to(senderSocketId).emit("messageRead", { senderId, receiverId });
+      console.log(`Emitting messageRead event to socket ${senderSocketId}`);
+      io.to(senderSocketId).emit("messagesRead", { senderId, receiverId });
+    } else {
+      console.log(`Sender ${senderId} is not online, no real-time notification sent`);
     }
   });
 

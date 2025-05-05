@@ -7,6 +7,7 @@ import crypto from "crypto";
 import Token from "../models/token.model.js";
 import axios from "axios";
 import config from "../config/env.js";
+import { getVerificationEmailTemplate, getPasswordResetEmailTemplate } from "../utils/emailTemplates.js";
 
 // Helper function to exchange authorization code for tokens
 const exchangeCodeForTokens = async (code) => {
@@ -102,13 +103,22 @@ export const signup = async (req, res) => {
           tokenType: "emailVerification",
         }).save();
 
-        const url = `${process.env.BASE_URL}/verify/${existingUser._id}/${rawToken}`;
-        console.log("📩 Verification Email Sent to:", existingUser.email, "URL:", url);
+        // Create a frontend URL for verification that will handle the token
+        const verificationUrl = `${config.CLIENT.URL}/verify-email/${existingUser._id}/${rawToken}`;
+        console.log("📩 Verification Email Sent to:", existingUser.email, "URL:", verificationUrl);
 
+        // Get the email template
+        const { subject, text, html } = getVerificationEmailTemplate(
+          existingUser.fullName || "User",
+          verificationUrl
+        );
+
+        // Send the email with HTML formatting
         await sendEmail({
           email: existingUser.email,
-          subject: "Email Confirmation",
-          text: `Click here to verify your email: ${url}`,
+          subject,
+          text,
+          html,
         });
 
         return res.status(400).json({
@@ -141,13 +151,22 @@ export const signup = async (req, res) => {
       tokenType: "emailVerification",
     }).save();
 
-    const url = `${process.env.BASE_URL}/verify/${newUser._id}/${rawToken}`;
-    console.log("📩 Sending Verification Email to:", newUser.email, "URL:", url);
+    // Create a frontend URL for verification that will handle the token
+    const verificationUrl = `${config.CLIENT.URL}/verify-email/${newUser._id}/${rawToken}`;
+    console.log("📩 Sending Verification Email to:", newUser.email, "URL:", verificationUrl);
 
+    // Get the email template
+    const { subject, text, html } = getVerificationEmailTemplate(
+      newUser.fullName || "User",
+      verificationUrl
+    );
+
+    // Send the email with HTML formatting
     await sendEmail({
       email: newUser.email,
-      subject: "Email Confirmation",
-      text: `Click here to verify your email: ${url}`,
+      subject,
+      text,
+      html,
     });
 
     res.status(201).json({ message: "Signup successful! Please check your email to verify your account." });
@@ -300,8 +319,22 @@ export const resendVerificationEmail = async (req, res) => {
       tokenType: "emailVerification",
     }).save();
 
-    const url = `${process.env.BASE_URL}/verify/${user._id}/${rawToken}`;
-    await sendEmail({ email: user.email, subject: "Verify Your Email", text: `Click here: ${url}` });
+    // Create a frontend URL for verification that will handle the token
+    const verificationUrl = `${config.CLIENT.URL}/verify-email/${user._id}/${rawToken}`;
+
+    // Get the email template
+    const { subject, text, html } = getVerificationEmailTemplate(
+      user.fullName || "User",
+      verificationUrl
+    );
+
+    // Send the email with HTML formatting
+    await sendEmail({
+      email: user.email,
+      subject,
+      text,
+      html,
+    });
 
     res.status(200).json({ message: "A new verification email has been sent." });
   } catch (error) {
@@ -314,7 +347,10 @@ export const resendVerificationEmail = async (req, res) => {
 export const verifyEmail = async (req, res) => {
   try {
     const { id, token } = req.params;
-    const tokenDoc = await Token.findOne({ userId: id });
+    const tokenDoc = await Token.findOne({
+      userId: id,
+      tokenType: "emailVerification"
+    });
 
     if (!tokenDoc || !(await bcrypt.compare(token, tokenDoc.token))) {
       return res.status(400).json({ message: "Invalid or expired token." });
@@ -325,7 +361,7 @@ export const verifyEmail = async (req, res) => {
     await user.save();
     await Token.findByIdAndDelete(tokenDoc._id);
 
-    res.redirect(`${process.env.CLIENT_URL}/login?verified=true`);
+    res.redirect(`${config.CLIENT.URL}/login?verified=true`);
   } catch (error) {
     console.error("Email Verification Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -355,12 +391,21 @@ export const forgotPassword = async (req, res) => {
       expiresAt: Date.now() + 15 * 60 * 1000, // Expires in 15 minutes
     }).save();
 
-    // Send email
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${rawToken}`;
+    // Send email with professional template
+    const resetUrl = `${config.CLIENT.URL}/reset-password/${rawToken}`;
+
+    // Get the email template
+    const { subject, text, html } = getPasswordResetEmailTemplate(
+      user.fullName || "User",
+      resetUrl
+    );
+
+    // Send the email with HTML formatting
     await sendEmail({
       email: user.email,
-      subject: "Password Reset Request",
-      text: `Click here to reset your password: ${resetUrl}`,
+      subject,
+      text,
+      html,
     });
 
     res.status(200).json({ message: "Password reset email sent." });
@@ -375,26 +420,40 @@ export const resetPassword = async (req, res) => {
     const { token } = req.params;
     const { newPassword } = req.body;
 
-    // Find token and validate
-    const tokenDoc = await Token.findOne({ tokenType: "passwordReset" });
-    if (!tokenDoc) {
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: "Token and new password are required." });
+    }
+
+    // Find all password reset tokens
+    const tokens = await Token.find({ tokenType: "passwordReset" });
+
+    if (!tokens || tokens.length === 0) {
       return res.status(400).json({ message: "Invalid or expired token." });
     }
 
-    const isValid = await bcrypt.compare(token, tokenDoc.token);
-    if (!isValid) {
+    // Find the matching token by comparing with bcrypt
+    let validTokenDoc = null;
+    for (const doc of tokens) {
+      const isValid = await bcrypt.compare(token, doc.token);
+      if (isValid) {
+        validTokenDoc = doc;
+        break;
+      }
+    }
+
+    if (!validTokenDoc) {
       return res.status(400).json({ message: "Invalid or expired token." });
     }
 
     // Update user password
-    const user = await User.findById(tokenDoc.userId);
+    const user = await User.findById(validTokenDoc.userId);
     if (!user) {
       return res.status(400).json({ message: "User not found." });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
-    await Token.findByIdAndDelete(tokenDoc._id);
+    await Token.findByIdAndDelete(validTokenDoc._id);
 
     res.status(200).json({ message: "Password reset successful." });
   } catch (error) {
@@ -539,7 +598,7 @@ export const googleAuth = async (req, res) => {
         user = await User.create({
           email,
           fullName: name,
-          profilePic: picture || "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png",
+          profilePic: picture || "", // Empty string will trigger the frontend to use the default avatar
           verified: true,
           isGoogleAuth: true
         });
@@ -583,7 +642,7 @@ export const googleAuth = async (req, res) => {
         user = await User.create({
           email,
           fullName: name,
-          profilePic: picture || "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png",
+          profilePic: picture || "", // Empty string will trigger the frontend to use the default avatar
           verified: true,
           isGoogleAuth: true
         });

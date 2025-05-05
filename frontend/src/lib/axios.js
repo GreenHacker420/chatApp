@@ -65,7 +65,7 @@ const logApiCall = (type, details) => {
 
 /**
  * Add interceptors to an axios instance
- * @param {AxiosInstance} instance - Axios instance
+ * @param {import('axios').AxiosInstance} instance - Axios instance
  * @param {string} name - Instance name for logging
  */
 const addInterceptors = (instance, name) => {

@@ -60,7 +60,8 @@ userSchema.pre("validate", function (next) {
 // ✅ Set default profile pic if none provided
 userSchema.pre("save", function (next) {
   if (!this.profilePic) {
-    this.profilePic = "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png";
+    // Use a local avatar image instead of Cloudinary
+    this.profilePic = "";  // Empty string will trigger the frontend to use the default avatar
   }
   next();
 });

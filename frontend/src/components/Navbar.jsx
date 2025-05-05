@@ -34,7 +34,7 @@ const Navbar = () => {
                 >
                   <div className="relative z-10 flex items-center gap-2">
                     <div className="w-8 h-8 rounded-full border-2 border-white shadow-md overflow-hidden flex-shrink-0">
-                      {user.profilePic ? (
+                      {user.profilePic && !user.profilePic.includes("Default_ProfilePic.png") ? (
                         <img
                           src={user.profilePic}
                           alt="Profile"
@@ -97,7 +97,7 @@ const Navbar = () => {
                 >
                   <div className="relative z-10 flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full border-2 border-white/80 shadow-md overflow-hidden flex-shrink-0">
-                      {user.profilePic ? (
+                      {user.profilePic && !user.profilePic.includes("Default_ProfilePic.png") ? (
                         <img
                           src={user.profilePic}
                           alt="Profile"

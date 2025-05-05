@@ -17,7 +17,7 @@ const ResetPasswordPage = () => {
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.newPassword || !formData.confirmPassword) {
       toast.error("Please fill in all fields");
       return;
@@ -36,8 +36,7 @@ const ResetPasswordPage = () => {
     setIsLoading(true);
 
     try {
-      const response = await axiosInstance.post("/reset-password", {
-        token,
+      const response = await axiosInstance.post(`/reset-password/${token}`, {
         newPassword: formData.newPassword,
       });
 

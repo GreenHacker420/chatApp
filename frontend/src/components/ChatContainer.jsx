@@ -30,12 +30,26 @@ const ChatContainer = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
 
-  // ✅ Load messages and subscribe to real-time updates
+  // Track if this is the first load for this user
+  const isFirstLoadRef = useRef({});
+
+  // ✅ Load messages and subscribe to real-time updates with debouncing
   useEffect(() => {
     if (!selectedUser?._id) return;
 
     console.log("Loading messages for user:", selectedUser._id);
-    getMessages(selectedUser._id);
+
+    // Check if this is the first load for this specific user
+    const isFirstLoad = !isFirstLoadRef.current[selectedUser._id];
+
+    // Add a small delay before loading messages to prevent rapid loading
+    // when switching between chats quickly
+    const loadMessagesTimeout = setTimeout(() => {
+      getMessages(selectedUser._id);
+      // Mark this user as loaded
+      isFirstLoadRef.current[selectedUser._id] = true;
+    }, isFirstLoad ? 0 : 300); // No delay on first load, 300ms on subsequent loads
+
     const unsubscribe = subscribeToMessages();
 
     // Debug socket connection
@@ -46,6 +60,9 @@ const ChatContainer = () => {
     }
 
     return () => {
+      // Clear the timeout if the component unmounts before it fires
+      clearTimeout(loadMessagesTimeout);
+
       if (socket) {
         socket.off("typing");
         socket.off("stopTyping");
@@ -55,12 +72,34 @@ const ChatContainer = () => {
     };
   }, [selectedUser?._id]);
 
-  // ✅ Auto-scroll to latest message
+  // Create a ref for the scroll timeout outside the effect
+  const scrollTimeoutRef = useRef(null);
+
+  // ✅ Auto-scroll to latest message with debouncing
   useEffect(() => {
     if (!messages.length) return;
-    setTimeout(() => {
-      messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 100);
+
+    // Clear any existing timeout to prevent multiple scrolls
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    // Set a new timeout with a small delay to allow the DOM to update
+    scrollTimeoutRef.current = setTimeout(() => {
+      // Scroll to the message end reference
+      messageEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end"
+      });
+      scrollTimeoutRef.current = null;
+    }, 200);
+
+    // Clean up on unmount
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, [messages]);
 
   // ✅ Handle "typing" events
@@ -89,8 +128,28 @@ const ChatContainer = () => {
     if (!socket || !selectedUser || !authUser) return;
 
     const handleMessagesRead = ({ senderId, receiverId }) => {
-      if (receiverId === authUser._id && senderId === selectedUser._id) {
-        getMessages(selectedUser._id); // Refresh messages
+      console.log(`Received messagesRead event: sender=${senderId}, receiver=${receiverId}`);
+
+      // If we're the sender and the receiver is the selected user
+      if (senderId === authUser._id && receiverId === selectedUser._id) {
+        console.log("Updating message read status in UI");
+
+        // Update message read status directly in the store
+        useChatStore.setState((state) => {
+          const updatedMessages = state.messages.map(msg => {
+            // If this is our message to the selected user and it's not marked as read
+            if (
+              (msg.senderId === authUser._id || msg.sender?._id === authUser._id) &&
+              (msg.receiverId === selectedUser._id) &&
+              !msg.isRead
+            ) {
+              return { ...msg, isRead: true };
+            }
+            return msg;
+          });
+
+          return { messages: updatedMessages };
+        });
       }
     };
 
@@ -155,8 +214,8 @@ const ChatContainer = () => {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Display messages in reverse chronological order (newest first) */}
-        {[...messages].map((message) => {
+        {/* Display messages in chronological order (oldest first) */}
+        {[...messages].slice().reverse().map((message) => {
           // Check if the message was sent by the current user
           const isSentByMe =
             // Check if sender object exists and matches current user
@@ -173,10 +232,18 @@ const ChatContainer = () => {
             content: message.content || message.text
           });
 
-          // Use the correct profile picture based on who sent the message
-          const senderProfilePic = isSentByMe
-            ? authUser.profilePic || "/avatar.png"
-            : selectedUser.profilePic || "/avatar.png";
+          // Use the correct profile picture based on who sent the message with proper null checks
+          const defaultAvatar = "/avatar.png"; // Default local avatar
+          let profilePic = isSentByMe
+            ? authUser?.profilePic
+            : (selectedUser?.profilePic || message.sender?.profilePic);
+
+          // Check for invalid or missing profile pic
+          if (!profilePic || profilePic === "" || profilePic.includes("Default_ProfilePic.png")) {
+            profilePic = defaultAvatar;
+          }
+
+          const senderProfilePic = profilePic;
 
           return (
             <div
@@ -185,7 +252,14 @@ const ChatContainer = () => {
             >
               <div className="chat-image avatar">
                 <div className="size-10 rounded-full border">
-                  <img src={senderProfilePic} alt="profile pic" />
+                  <img
+                    src={senderProfilePic}
+                    alt="profile pic"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = "/avatar.png";
+                    }}
+                  />
                 </div>
               </div>
 

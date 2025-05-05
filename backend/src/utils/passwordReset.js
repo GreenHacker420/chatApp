@@ -2,6 +2,8 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import Token from "../models/token.model.js";
 import sendEmail from "../utils/sendEmail.js";
+import config from "../config/env.js";
+import { getPasswordResetEmailTemplate } from "./emailTemplates.js";
 
 export const sendPasswordResetEmail = async (user) => {
   try {
@@ -17,11 +19,20 @@ export const sendPasswordResetEmail = async (user) => {
       expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes expiration
     }).save();
 
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${rawToken}`;
+    const resetUrl = `${config.CLIENT.URL}/reset-password/${rawToken}`;
+
+    // Get the email template
+    const { subject, text, html } = getPasswordResetEmailTemplate(
+      user.fullName || "User",
+      resetUrl
+    );
+
+    // Send the email with HTML formatting
     await sendEmail({
       email: user.email,
-      subject: "Password Reset Request",
-      text: `Click here to reset your password: ${resetUrl}`,
+      subject,
+      text,
+      html,
     });
 
     return "Password reset email sent.";

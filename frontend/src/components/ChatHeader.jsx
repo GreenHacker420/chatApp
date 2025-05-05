@@ -28,9 +28,15 @@ const ChatHeader = () => {
           <div className="avatar relative">
             <div className="size-10 rounded-full">
               <img
-                src={selectedUser.profilePic || "/avatar.png"}
-                alt={selectedUser.fullName}
+                src={selectedUser?.profilePic && !selectedUser.profilePic.includes("Default_ProfilePic.png")
+                  ? selectedUser.profilePic
+                  : "/avatar.png"}
+                alt={selectedUser?.fullName || "User"}
                 className="object-cover w-full h-full rounded-full"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = "/avatar.png";
+                }}
               />
             </div>
             {isOnline && (
@@ -39,7 +45,7 @@ const ChatHeader = () => {
           </div>
 
           <div>
-            <h3 className="font-medium">{selectedUser.fullName}</h3>
+            <h3 className="font-medium">{selectedUser?.fullName || "User"}</h3>
             <p className="text-sm text-base-content/70 flex items-center gap-1">
               <Circle
                 className={`w-3 h-3 ${isOnline ? "text-green-500" : "text-gray-400"}`}

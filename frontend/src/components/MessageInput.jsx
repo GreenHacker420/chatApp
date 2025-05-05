@@ -15,12 +15,14 @@ const MessageInput = () => {
   // ✅ Emit "typing" event when user types
   const handleTyping = (e) => {
     setText(e.target.value);
-    if (socket && selectedUser) {
+    if (socket && selectedUser && selectedUser._id) {
       const authUserId = useAuthStore.getState().user?._id;
-      socket.emit("typing", {
-        senderId: authUserId,
-        receiverId: selectedUser._id
-      });
+      if (authUserId) {
+        socket.emit("typing", {
+          senderId: authUserId,
+          receiverId: selectedUser._id
+        });
+      }
     }
   };
 
@@ -58,6 +60,11 @@ const MessageInput = () => {
     if (!text.trim() && !mediaPreview) return;
 
     try {
+      if (!selectedUser || !selectedUser._id) {
+        toast.error("Cannot send message: No recipient selected");
+        return false;
+      }
+
       console.log("Sending message to:", selectedUser?.fullName || selectedUser?._id);
 
       // Only send if there's actual content or media

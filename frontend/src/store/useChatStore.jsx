@@ -6,19 +6,29 @@ import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../constants/messages";
 import { socket } from "../socket";
 
 export const useChatStore = create((set, get) => ({
+  // Message and user data
   messages: [],
   users: [],
   selectedUser: null,
   unreadMessages: {}, // ✅ Tracks unread messages per user
+  notifications: [], // ✅ Store message notifications
+
+  // Pagination and loading state
   isUsersLoading: false,
   isMessagesLoading: false,
   hasMoreMessages: true, // ✅ Used for pagination
   currentPage: 1, // ✅ Track the current page of messages
-  notifications: [], // ✅ Store message notifications
+
+  // Internal tracking objects for debouncing
+  _lastFetchTimes: {}, // ✅ Track last fetch time for each user
+  _lastMarkTimes: {}, // ✅ Track last mark-as-read time for each user
+  _pendingMarkTimeouts: {}, // ✅ Track pending mark-as-read timeouts
 
   // Group call state
   isGroupCallActive: false,
   activeGroupCall: null,
+  groupCallParticipants: [],
+  groupCallInvitations: [],
 
   // Call state
   isCallActive: false,
@@ -27,9 +37,6 @@ export const useChatStore = create((set, get) => ({
   incomingCallData: null,
   isMuted: false,
   isVideoOff: false,
-
-  groupCallParticipants: [],
-  groupCallInvitations: [],
 
   error: null,
 
@@ -64,32 +71,83 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // ✅ Load messages with pagination
+  // ✅ Load messages with pagination and debouncing
   getMessages: async (userId, page = 1) => {
+    if (!userId) {
+      console.error("getMessages called without userId");
+      return;
+    }
+
+    // Get the current state
+    const self = get();
+
+    // Check if we've fetched messages for this user recently (within 1 second)
+    const now = Date.now();
+    const lastFetchTime = self._lastFetchTimes[userId] || 0;
+    const timeSinceLastFetch = now - lastFetchTime;
+
+    // If we've fetched messages for this user very recently, debounce the request
+    if (timeSinceLastFetch < 1000 && page === 1) {
+      console.log(`Debouncing message fetch for user ${userId}, last fetch was ${timeSinceLastFetch}ms ago`);
+      return; // Skip this fetch
+    }
+
+    // Update the last fetch time for this user
+    set((state) => ({
+      _lastFetchTimes: {
+        ...state._lastFetchTimes,
+        [userId]: now
+      }
+    }));
+
     set({ isMessagesLoading: true });
 
     try {
       const res = await messagesApi.get(`/${userId}?page=${page}`);
-
-      // Log the messages received from the API
       console.log(`Received ${res.data.messages.length} messages from API, page ${page}`);
 
+      // Process messages in a stable way to prevent flickering
       set((state) => {
         if (page === 1) {
-          // For first page, just use the messages from the API (already sorted by createdAt: -1)
+          // For first page, create a stable message list by preserving message objects
+          // that already exist in the state to prevent unnecessary re-renders
+          const newMessageIds = new Set(res.data.messages.map(msg => msg._id));
+          const existingMessages = state.messages.filter(msg => newMessageIds.has(msg._id));
+
+          // Create a map of existing messages for quick lookup
+          const existingMessageMap = new Map();
+          existingMessages.forEach(msg => existingMessageMap.set(msg._id, msg));
+
+          // Create a stable message list by using existing message objects when possible
+          const stableMessages = res.data.messages.map(newMsg =>
+            existingMessageMap.has(newMsg._id) ? existingMessageMap.get(newMsg._id) : newMsg
+          );
+
           return {
-            messages: res.data.messages,
+            messages: stableMessages,
             hasMoreMessages: res.data.messages.length > 0,
             currentPage: page,
           };
         }
 
-        // For pagination, filter out duplicates and maintain correct order
+        // For pagination, use a more efficient approach to merge messages
         const existingMessageIds = new Set(state.messages.map(msg => msg._id));
         const newMessages = res.data.messages.filter(msg => !existingMessageIds.has(msg._id));
 
-        // Combine existing and new messages, then sort by createdAt in descending order
-        const allMessages = [...state.messages, ...newMessages];
+        if (newMessages.length === 0) {
+          return {
+            hasMoreMessages: false,
+            currentPage: page,
+          };
+        }
+
+        // Create a map of all messages for stable sorting
+        const messageMap = new Map();
+        state.messages.forEach(msg => messageMap.set(msg._id, msg));
+        newMessages.forEach(msg => messageMap.set(msg._id, msg));
+
+        // Convert map to array and sort
+        const allMessages = Array.from(messageMap.values());
         allMessages.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
         return {
@@ -99,8 +157,11 @@ export const useChatStore = create((set, get) => ({
         };
       });
 
+      // Use a small delay before marking messages as read to prevent rapid socket events
       if (page === 1) {
-        await get().markMessagesAsRead(userId);
+        setTimeout(() => {
+          get().markMessagesAsRead(userId);
+        }, 300);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to load messages");
@@ -109,21 +170,115 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // ✅ Mark messages as read
+  // ✅ Mark messages as read with debouncing
   markMessagesAsRead: async (userId) => {
     if (!userId) return;
-    try {
-      await messagesApi.post(`/mark-as-read/${userId}`);
+
+    // Get the current state
+    const self = get();
+
+    // Check if we've marked messages as read for this user recently (within 1 second)
+    const now = Date.now();
+    const lastMarkTime = self._lastMarkTimes[userId] || 0;
+    const timeSinceLastMark = now - lastMarkTime;
+
+    // Clear any existing timeout for this user
+    if (self._pendingMarkTimeouts[userId]) {
+      clearTimeout(self._pendingMarkTimeouts[userId]);
+
+      // Update the store to remove the pending timeout
       set((state) => ({
-        unreadMessages: { ...state.unreadMessages, [userId]: 0 },
+        _pendingMarkTimeouts: {
+          ...state._pendingMarkTimeouts,
+          [userId]: null
+        }
       }));
+    }
+
+    // If we've marked messages as read for this user very recently, debounce the request
+    if (timeSinceLastMark < 1000) {
+      // Schedule a debounced mark-as-read
+      const timeoutId = setTimeout(() => {
+        // This will run after the debounce period
+        set((state) => ({
+          _lastMarkTimes: {
+            ...state._lastMarkTimes,
+            [userId]: Date.now()
+          },
+          _pendingMarkTimeouts: {
+            ...state._pendingMarkTimeouts,
+            [userId]: null
+          }
+        }));
+
+        // Actually mark messages as read
+        get()._markMessagesAsRead(userId);
+      }, 500);
+
+      // Store the timeout ID
+      set((state) => ({
+        _pendingMarkTimeouts: {
+          ...state._pendingMarkTimeouts,
+          [userId]: timeoutId
+        }
+      }));
+
+      // Update unread count immediately for better UX
+      set((state) => ({
+        unreadMessages: {
+          ...state.unreadMessages,
+          [userId]: 0
+        },
+      }));
+
+      return;
+    }
+
+    // Update the last mark time for this user
+    set((state) => ({
+      _lastMarkTimes: {
+        ...state._lastMarkTimes,
+        [userId]: now
+      }
+    }));
+
+    // Actually mark messages as read
+    get()._markMessagesAsRead(userId);
+  },
+
+  // Private helper function to actually mark messages as read
+  _markMessagesAsRead: async (userId) => {
+    try {
+      // Send the request to mark messages as read
+      await messagesApi.post(`/mark-as-read/${userId}`);
+
+      // Update the unread count in the store
+      set((state) => ({
+        unreadMessages: {
+          ...state.unreadMessages,
+          [userId]: 0
+        },
+      }));
+
+      // Update the read status of messages in the store
+      set((state) => {
+        // Find messages from this user that are unread
+        const updatedMessages = state.messages.map(msg => {
+          if ((msg.senderId === userId || msg.sender?._id === userId) && !msg.isRead) {
+            return { ...msg, isRead: true };
+          }
+          return msg;
+        });
+
+        return { messages: updatedMessages };
+      });
     } catch (error) {
       console.error("Failed to mark messages as read:", error);
     }
   },
 
   addNotification: (message, userId) => {
-    const { notifications, selectedUser } = get();
+    const { selectedUser } = get();
     // Only add notification if chat is not currently open
     if (!selectedUser || selectedUser._id !== userId) {
       set((state) => ({
@@ -134,15 +289,22 @@ export const useChatStore = create((set, get) => ({
         }
       }));
       // Show toast notification
-      toast.custom((t) => (
+      toast.custom(() => (
         <div className="bg-base-100 shadow-lg rounded-lg p-4 flex items-center gap-3">
           <div className="avatar">
             <div className="w-12 rounded-full">
-              <img src={message.sender.profilePic || "/default-avatar.png"} alt="sender" />
+              <img
+                src={message.sender.profilePic || "/avatar.png"}
+                alt="sender"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = "/avatar.png";
+                }}
+              />
             </div>
           </div>
           <div>
-            <p className="font-semibold">{message.sender.username}</p>
+            <p className="font-semibold">{message.sender.fullName || message.sender.username || "User"}</p>
             <p className="text-sm text-base-content/70">{message.content}</p>
           </div>
         </div>
@@ -299,35 +461,119 @@ export const useChatStore = create((set, get) => ({
       return () => {};
     }
 
-    const handleNewMessage = (data) => {
+    // Create a debounced message update function to prevent rapid UI updates
+    let pendingMessages = [];
+    let updateTimeout = null;
+
+    const processPendingMessages = () => {
+      if (pendingMessages.length === 0) return;
+
       const { selectedUser } = get();
-      const authUserId = useAuthStore.getState().user?._id;
-      const message = data.message || data;
+      // We don't need authUserId here since we're just processing messages
+      // that are already determined to be relevant to the current chat
 
-      console.log("Received message via socket:", message);
+      // Process all pending messages at once
+      const uniqueMessages = [];
+      const messageIds = new Set();
 
-      // Ensure message has consistent field names
-      console.log("Processing received message:", {
-        id: message._id,
-        hasContent: !!message.content,
-        hasText: !!message.text,
-        senderId: message.senderId,
-        receiverId: message.receiverId
+      // First, deduplicate the pending messages
+      pendingMessages.forEach(message => {
+        if (!messageIds.has(message._id)) {
+          messageIds.add(message._id);
+          uniqueMessages.push(message);
+        }
       });
 
+      // Clear pending messages
+      pendingMessages = [];
+
+      // Now update the state once with all unique messages
+      set((state) => {
+        // Get existing message IDs to prevent duplicates
+        const existingMessageIds = new Set(state.messages.map(msg => msg._id));
+
+        // Filter out messages that already exist in the state
+        const newMessages = uniqueMessages.filter(msg => !existingMessageIds.has(msg._id));
+
+        if (newMessages.length === 0) {
+          return state; // No changes needed
+        }
+
+        // Find messages that need to be marked as read
+        const messagesToMarkAsRead = newMessages.filter(message => {
+          const senderId = message.sender?._id || message.senderId;
+          return selectedUser &&
+                 (senderId === selectedUser._id) &&
+                 !message.isRead;
+        });
+
+        // If we have messages to mark as read, do it in a single operation
+        if (messagesToMarkAsRead.length > 0 && selectedUser) {
+          // Use setTimeout to avoid blocking the UI update
+          setTimeout(() => {
+            get().markMessagesAsRead(selectedUser._id);
+          }, 300);
+        }
+
+        // Update the messages state with all new messages at once
+        return {
+          messages: [...state.messages, ...newMessages].sort(
+            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+          )
+        };
+      });
+
+      // Update last message in users list (once for all messages)
+      set((state) => {
+        const updatedUsers = [...state.users];
+        let hasChanges = false;
+
+        uniqueMessages.forEach(message => {
+          const senderId = message.sender?._id || message.senderId;
+          const receiverId = message.receiverId;
+
+          // Find users that need to be updated
+          for (let i = 0; i < updatedUsers.length; i++) {
+            if (updatedUsers[i]._id === senderId || updatedUsers[i]._id === receiverId) {
+              // Only update if this message is newer than the current lastMessage
+              const currentLastMessage = updatedUsers[i].lastMessage;
+              if (!currentLastMessage ||
+                  new Date(message.createdAt) > new Date(currentLastMessage.createdAt)) {
+                updatedUsers[i] = { ...updatedUsers[i], lastMessage: message };
+                hasChanges = true;
+              }
+            }
+          }
+        });
+
+        return hasChanges ? { users: updatedUsers } : state;
+      });
+    };
+
+    // Debounced function to process messages
+    const debouncedProcessMessages = () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      updateTimeout = setTimeout(processPendingMessages, 300); // 300ms debounce
+    };
+
+    const handleNewMessage = (data) => {
+      const message = data.message || data;
+      const { selectedUser } = get();
+      const authUserId = useAuthStore.getState().user?._id;
+
+      // Normalize message format
       if (message.content && !message.text) {
         message.text = message.content;
-        console.log("Set text from content");
       } else if (message.text && !message.content) {
         message.content = message.text;
-        console.log("Set content from text");
       }
 
       // If both fields are missing or null, set them to empty string
       if (!message.content && !message.text) {
         message.content = "";
         message.text = "";
-        console.log("Both content and text were missing, set to empty string");
       }
 
       // Ensure we have sender information
@@ -336,35 +582,42 @@ export const useChatStore = create((set, get) => ({
         if (senderUser) {
           message.sender = {
             _id: senderUser._id,
-            fullName: senderUser.fullName,
-            profilePic: senderUser.profilePic
+            fullName: senderUser.fullName || "User",
+            profilePic: senderUser.profilePic || "/avatar.png"
+          };
+        } else {
+          // Create a default sender object if we can't find the user
+          message.sender = {
+            _id: message.senderId,
+            fullName: "User",
+            profilePic: "/avatar.png"
           };
         }
       }
 
-      // Update messages if chat is open with the correct user
-      if (selectedUser && (
+      // Ensure sender object has all required fields
+      if (message.sender && typeof message.sender === 'object') {
+        if (!message.sender.fullName) message.sender.fullName = "User";
+        if (!message.sender.profilePic ||
+            message.sender.profilePic === "" ||
+            message.sender.profilePic.includes("Default_ProfilePic.png")) {
+          message.sender.profilePic = "/avatar.png";
+        }
+      }
+
+      // Check if this message is relevant to the current chat
+      const isRelevantToCurrentChat = selectedUser && (
         // If we're chatting with the sender of this message
         (message.sender?._id === selectedUser._id || message.senderId === selectedUser._id) ||
         // Or if we're chatting with the receiver and we sent this message
         (message.receiverId === selectedUser._id &&
          (message.sender?._id === authUserId || message.senderId === authUserId))
-      )) {
-        // Check if message already exists to prevent duplicates
-        set((state) => {
-          const messageExists = state.messages.some(msg => msg._id === message._id);
-          if (messageExists) {
-            return state;
-          }
-          return {
-            messages: [...state.messages, message]
-          };
-        });
+      );
 
-        // Mark as read if we received the message
-        if (message.sender?._id === selectedUser._id || message.senderId === selectedUser._id) {
-          get().markMessagesAsRead(selectedUser._id);
-        }
+      if (isRelevantToCurrentChat) {
+        // Add to pending messages for batch processing
+        pendingMessages.push(message);
+        debouncedProcessMessages();
       } else {
         // Add notification if chat is not open
         const senderId = message.sender?._id || message.senderId;
@@ -372,26 +625,15 @@ export const useChatStore = create((set, get) => ({
           get().addNotification(message, senderId);
         }
       }
-
-      // Update last message in users list
-      set((state) => ({
-        users: state.users.map(user => {
-          const senderId = message.sender?._id || message.senderId;
-          const receiverId = message.receiverId;
-
-          // Update last message for both sender and receiver
-          if (user._id === senderId || user._id === receiverId) {
-            return { ...user, lastMessage: message };
-          }
-          return user;
-        })
-      }));
     };
 
     socket.on("newMessage", handleNewMessage);
 
     return () => {
       socket.off("newMessage", handleNewMessage);
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
     };
   },
 

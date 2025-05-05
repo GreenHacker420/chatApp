@@ -38,13 +38,14 @@ router.get("/check", (req, res, next) => {
 }, checkAuth);
 
 router.post("/resend-verification", rateLimiter, resendVerificationEmail);
-router.get("/verify-email/:token", verifyEmail);
+router.get("/verify/:id/:token", verifyEmail);
 router.post("/forgot-password", rateLimiter, forgotPassword);
 router.post("/reset-password/:token", resetPassword);
 
 // Protected routes
 router.get("/profile", protectRoute, getProfile);
 router.put("/profile", protectRoute, updateProfile);
+router.post("/logout", protectRoute, logout);
 router.put("/password", protectRoute, changePassword);
 router.put("/update-password", protectRoute, updatePassword);
 router.delete("/delete", protectRoute, deleteAccount);

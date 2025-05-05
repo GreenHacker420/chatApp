@@ -42,6 +42,13 @@ const UserProfilePage = () => {
     setProfileImage("/avatar.png");
   };
 
+  // Check if profile image is the missing Cloudinary image
+  useEffect(() => {
+    if (profileImage && profileImage.includes("Default_ProfilePic.png")) {
+      setProfileImage("/avatar.png");
+    }
+  }, [profileImage]);
+
   // Start a call with this user
   const handleStartCall = (isVideo) => {
     if (userProfile) {
@@ -65,8 +72,8 @@ const UserProfilePage = () => {
           <div className="bg-base-300 rounded-xl p-6 space-y-8 text-center">
             <h1 className="text-2xl font-semibold">Error</h1>
             <p>{error || "User not found"}</p>
-            <button 
-              className="btn btn-primary" 
+            <button
+              className="btn btn-primary"
               onClick={() => navigate(-1)}
             >
               Go Back
@@ -82,8 +89,8 @@ const UserProfilePage = () => {
       <div className="max-w-2xl mx-auto p-4 py-8">
         <div className="bg-base-300 rounded-xl p-6 space-y-8">
           <div className="flex justify-between items-center">
-            <button 
-              className="btn btn-sm btn-ghost" 
+            <button
+              className="btn btn-sm btn-ghost"
               onClick={() => navigate(-1)}
             >
               <ArrowLeft className="w-4 h-4" />
@@ -123,14 +130,14 @@ const UserProfilePage = () => {
 
           {/* Call Actions */}
           <div className="flex justify-center gap-4">
-            <button 
+            <button
               className="btn btn-primary btn-sm gap-2"
               onClick={() => handleStartCall(false)}
             >
               <Phone className="w-4 h-4" />
               Audio Call
             </button>
-            <button 
+            <button
               className="btn btn-accent btn-sm gap-2"
               onClick={() => handleStartCall(true)}
             >
