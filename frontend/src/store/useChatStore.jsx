@@ -664,7 +664,7 @@ export const useChatStore = create((set, get) => ({
   // ✅ Start a call
   startCall: async (userId, isVideo = false, isUserOnline = false) => {
     const socket = useAuthStore.getState().socket;
-    const authUser = useAuthStore.getState().authUser;
+    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
     const { activeCall } = get();
 
     if (activeCall) {
@@ -674,6 +674,13 @@ export const useChatStore = create((set, get) => ({
 
     if (!socket) {
       toast.error(ERROR_MESSAGES.SOCKET_CONNECTION);
+      return;
+    }
+
+    // Check if authUser exists
+    if (!authUser || !authUser._id) {
+      console.error("Error starting call: User not authenticated");
+      toast.error("You need to be logged in to make calls");
       return;
     }
 
@@ -698,7 +705,7 @@ export const useChatStore = create((set, get) => ({
       if (isUserOnline) {
         socket.emit("initiateCall", {
           callerId: authUser._id,
-          callerName: authUser.fullName,
+          callerName: authUser.fullName || "User",
           receiverId: userId,
           isVideo
         });
@@ -721,17 +728,18 @@ export const useChatStore = create((set, get) => ({
   handleIncomingCall: (callData) => {
     const { activeCall, isCallActive } = get();
     const socket = useAuthStore.getState().socket;
+    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
 
     // Prevent handling new calls if already in a call
     if (activeCall || isCallActive) {
-      if (socket) {
+      if (socket && authUser && authUser._id) {
         socket.emit("rejectCall", {
           callerId: callData.callerId,
-          receiverId: useAuthStore.getState().authUser._id,
+          receiverId: authUser._id,
           reason: "busy"
         });
       } else {
-        console.warn("⚠️ Socket not available for rejecting call");
+        console.warn("⚠️ Socket not available for rejecting call or user not authenticated");
       }
       return;
     }
@@ -749,12 +757,20 @@ export const useChatStore = create((set, get) => ({
   acceptCall: async () => {
     const { incomingCallData, activeCall } = get();
     const socket = useAuthStore.getState().socket;
+    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
 
     if (!incomingCallData || !socket || activeCall) {
       if (!socket) {
         console.warn("⚠️ Socket not available for accepting call");
         toast.error("Unable to accept call. Connection issue.");
       }
+      return;
+    }
+
+    // Check if user is authenticated
+    if (!authUser || !authUser._id) {
+      console.warn("⚠️ User not authenticated for accepting call");
+      toast.error("You need to be logged in to accept calls");
       return;
     }
 
@@ -778,7 +794,7 @@ export const useChatStore = create((set, get) => ({
 
       socket.emit("acceptCall", {
         callerId: incomingCallData.callerId,
-        receiverId: useAuthStore.getState().authUser._id
+        receiverId: authUser._id
       });
 
       toast.success(`Connected to ${incomingCallData.callerName}`);
@@ -808,8 +824,8 @@ export const useChatStore = create((set, get) => ({
         clearTimeout(endCallTimeout);
       }
 
-      // Emit end call event if socket is available
-      if (socket && socket.connected && user) {
+      // Emit end call event if socket is available and user is authenticated
+      if (socket && socket.connected && user && user._id) {
         try {
           console.log("Emitting endCall event:", {
             userId: user._id,
@@ -824,10 +840,11 @@ export const useChatStore = create((set, get) => ({
           console.error("Error emitting endCall event:", error);
         }
       } else {
-        console.warn("⚠️ Socket not available for ending call", {
+        console.warn("⚠️ Socket not available for ending call or user not authenticated", {
           socketExists: !!socket,
           socketConnected: socket?.connected,
-          userExists: !!user
+          userExists: !!user,
+          userIdExists: !!(user && user._id)
         });
       }
 
@@ -847,18 +864,19 @@ export const useChatStore = create((set, get) => ({
   rejectCall: () => {
     const { incomingCallData } = get();
     const socket = useAuthStore.getState().socket;
+    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
 
     if (!incomingCallData) return;
 
-    // Emit reject call event if socket is available
-    if (socket) {
+    // Emit reject call event if socket is available and user is authenticated
+    if (socket && authUser && authUser._id) {
       socket.emit("rejectCall", {
         callerId: incomingCallData.callerId,
-        receiverId: useAuthStore.getState().authUser._id,
+        receiverId: authUser._id,
         reason: "rejected"
       });
     } else {
-      console.warn("⚠️ Socket not available for rejecting call");
+      console.warn("⚠️ Socket not available for rejecting call or user not authenticated");
     }
 
     // Clear incoming call state
