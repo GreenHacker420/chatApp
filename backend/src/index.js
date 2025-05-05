@@ -11,7 +11,6 @@ import adminRoutes from "./routes/admin.route.js";
 import usersRoutes from "./routes/users.route.js";
 import { app, server } from "./lib/socket.js";
 import passport from "./lib/passport.js";
-import healthRouter from './routes/health.route.js';
 
 // Add global error handlers for uncaught exceptions and unhandled rejections
 process.on('uncaughtException', (err) => {
@@ -78,13 +77,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Add a root path handler that redirects to the frontend login page
-// Railway will use /health for health checks
+// Add a root path handler that returns 200 for health checks and redirects browsers
 app.get('/', (req, res) => {
-  // For API requests, return a 200 status with minimal info
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    return res.status(200).json({ status: 'ok' });
-  }
 
   // For browser requests, redirect to the frontend login page
   const loginUrl = process.env.NODE_ENV === 'production'
@@ -99,7 +93,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/health", healthRouter);
 
 // ✅ Serve frontend in production
 if (process.env.NODE_ENV === "production") {
