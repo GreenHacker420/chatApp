@@ -12,7 +12,7 @@ const FRONTEND_URLS = {
 // Port Configuration
 const PORTS = {
   FRONTEND: isDevelopment ? 5173 : 80,
-  BACKEND: process.env.PORT || 5001, 
+  BACKEND: process.env.PORT || 5001,
 };
 
 export const config = {
@@ -37,7 +37,7 @@ export const config = {
 
   // CORS Configuration
   CORS: {
-    ORIGIN: isDevelopment 
+    ORIGIN: isDevelopment
       ? [FRONTEND_URLS.DEVELOPMENT]
       : [FRONTEND_URLS.PRODUCTION],
     CREDENTIALS: true,
@@ -77,10 +77,13 @@ export const config = {
 
   // Email Configuration
   EMAIL: {
-    SERVICE: process.env.EMAIL_SERVICE || 'gmail',
-    USER: process.env.EMAIL_USER,
-    PASS: process.env.EMAIL_PASS,
-    FROM: process.env.EMAIL_FROM || 'noreply@gutargu.greenhacker.tech',
+    SERVICE: process.env.EMAIL_SERVICE || process.env.SERVICE || 'gmail',
+    USER: process.env.EMAIL_USER || process.env.GMAIL_USER,
+    PASS: process.env.EMAIL_PASS || process.env.GMAIL_PASS,
+    FROM: 'noreply@gutargu.greenhacker.tech', // Default value
+    HOST: process.env.EMAIL_HOST || process.env.HOST || 'smtp.gmail.com',
+    PORT: process.env.EMAIL_PORT || process.env.PORT || 465,
+    SECURE: process.env.EMAIL_SECURE || process.env.SECURE || true,
   },
 
   // Cloudinary Configuration
@@ -103,4 +106,4 @@ export const config = {
   },
 };
 
-export default config; 
+export default config;
