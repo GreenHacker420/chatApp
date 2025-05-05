@@ -16,7 +16,11 @@ const MessageInput = () => {
   const handleTyping = (e) => {
     setText(e.target.value);
     if (socket && selectedUser) {
-      socket.emit("typing", { senderId: selectedUser._id });
+      const authUserId = useAuthStore.getState().user?._id;
+      socket.emit("typing", {
+        senderId: authUserId,
+        receiverId: selectedUser._id
+      });
     }
   };
 
@@ -55,26 +59,22 @@ const MessageInput = () => {
 
     try {
       const messageData = {
-        text: text.trim(),
+        content: text.trim(), // Use content instead of text for consistency
+        receiverId: selectedUser._id,
         image: mediaType === "image" ? mediaPreview : null,
         video: mediaType === "video" ? mediaPreview : null,
       };
 
-      const response = await sendMessage(messageData);
-
-      // ✅ Emit socket event for real-time message
-      if (socket && selectedUser && response) {
-        const authUserId = useAuthStore.getState().user?._id;
-        socket.emit("sendMessage", {
-          senderId: authUserId, // Use the authenticated user's ID as the sender
-          receiverId: selectedUser._id,
-          message: response
-        });
-      }
+      // Send message through the store which handles API call and socket emission
+      await sendMessage(messageData);
 
       // ✅ Emit "stopTyping" event when message is sent
       if (socket && selectedUser) {
-        socket.emit("stopTyping", { senderId: selectedUser._id });
+        const authUserId = useAuthStore.getState().user?._id;
+        socket.emit("stopTyping", {
+          senderId: authUserId,
+          receiverId: selectedUser._id
+        });
       }
 
       // ✅ Clear input

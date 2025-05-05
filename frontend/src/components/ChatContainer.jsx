@@ -37,24 +37,7 @@ const ChatContainer = () => {
     getMessages(selectedUser._id);
     const unsubscribe = subscribeToMessages();
 
-    // Handle incoming messages
-    if (socket) {
-      const handleNewMessage = (data) => {
-        const { senderId, message } = data;
-        if (senderId === selectedUser._id) {
-          set((state) => ({
-            messages: [...state.messages, message]
-          }));
-          markMessagesAsRead(selectedUser._id);
-        }
-      };
-
-      socket.on("newMessage", handleNewMessage);
-      return () => {
-        socket.off("newMessage", handleNewMessage);
-        unsubscribe();
-      };
-    }
+    // No need to handle newMessage here as it's already handled in subscribeToMessages
 
     return () => {
       if (socket) {
@@ -62,6 +45,7 @@ const ChatContainer = () => {
         socket.off("stopTyping");
         socket.off("messagesRead");
       }
+      unsubscribe();
     };
   }, [selectedUser?._id]);
 
@@ -226,12 +210,13 @@ const ChatContainer = () => {
                   </div>
                 )}
 
-                {message.text}
+                {message.text || message.content}
                 {message.image && (
                   <img
                     src={message.image}
                     alt="Message attachment"
                     className="max-w-xs rounded-lg mt-2"
+                    loading="lazy"
                   />
                 )}
                 {message.video && (
@@ -239,6 +224,7 @@ const ChatContainer = () => {
                     src={message.video}
                     controls
                     className="max-w-xs rounded-lg mt-2"
+                    preload="metadata"
                   />
                 )}
               </div>

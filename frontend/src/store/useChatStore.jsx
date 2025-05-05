@@ -155,12 +155,12 @@ export const useChatStore = create((set, get) => ({
 
     let tempMessage = null;
     const authUser = useAuthStore.getState().user;
+    const socket = useAuthStore.getState().socket;
 
     try {
       // Create message data - handle both string and object content
       const messageData = {
-        // Map 'text' to 'content' for backend compatibility
-        content: typeof content === 'string' ? content : content.text || content.content || '',
+        content: typeof content === 'string' ? content : content.content || content.text || '',
         receiverId: content.receiverId || selectedUser._id
       };
 
@@ -174,31 +174,37 @@ export const useChatStore = create((set, get) => ({
       // Optimistic update with clear sender information
       tempMessage = {
         _id: Date.now().toString(),
-        // Store as text for frontend consistency
-        text: messageData.content,
+        content: messageData.content,
+        text: messageData.content, // Keep both for compatibility
         sender: authUser,
-        senderId: authUser._id, // Explicitly set senderId
-        receiverId: messageData.receiverId, // Explicitly set receiverId
+        senderId: authUser._id,
+        receiverId: messageData.receiverId,
         createdAt: new Date().toISOString(),
-        isOptimistic: true
+        isOptimistic: true,
+        isRead: false
       };
 
       set((state) => ({
         messages: [...state.messages, tempMessage]
       }));
 
-      console.log('🔹 Sending message:', messageData);
-
       // Send message using messagesApi
       const response = await messagesApi.post('', messageData);
-
-      console.log('✅ Message sent successfully:', response.data);
-
       const data = response.data;
 
-      // Ensure the response data has a text field for frontend consistency
+      // Ensure consistent field names for both directions
       if (data.content && !data.text) {
         data.text = data.content;
+      } else if (data.text && !data.content) {
+        data.content = data.text;
+      }
+
+      // Add sender information if not present
+      if (!data.sender) {
+        data.sender = authUser;
+      }
+      if (!data.senderId) {
+        data.senderId = authUser._id;
       }
 
       // Replace optimistic message with real one
@@ -217,7 +223,16 @@ export const useChatStore = create((set, get) => ({
         )
       }));
 
-      return data; // Return the message data for socket emission
+      // Emit socket event for real-time message
+      if (socket && socket.connected) {
+        socket.emit("sendMessage", {
+          senderId: authUser._id,
+          receiverId: selectedUser._id,
+          message: data
+        });
+      }
+
+      return data;
     } catch (error) {
       console.error("Failed to send message:", error);
       // Remove optimistic message on error
@@ -256,12 +271,25 @@ export const useChatStore = create((set, get) => ({
   },
 
   subscribeToMessages: () => {
-    socket.on("newMessage", (data) => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) {
+      console.warn("Socket not available for message subscription");
+      return () => {};
+    }
+
+    const handleNewMessage = (data) => {
       const { selectedUser } = get();
       const authUserId = useAuthStore.getState().user?._id;
       const message = data.message || data;
 
       console.log("Received message via socket:", message);
+
+      // Ensure message has consistent field names
+      if (message.content && !message.text) {
+        message.text = message.content;
+      } else if (message.text && !message.content) {
+        message.content = message.text;
+      }
 
       // Update messages if chat is open with the correct user
       if (selectedUser && (
@@ -271,9 +299,16 @@ export const useChatStore = create((set, get) => ({
         (message.receiverId === selectedUser._id &&
          (message.sender?._id === authUserId || message.senderId === authUserId))
       )) {
-        set((state) => ({
-          messages: [...state.messages, message]
-        }));
+        // Check if message already exists to prevent duplicates
+        set((state) => {
+          const messageExists = state.messages.some(msg => msg._id === message._id);
+          if (messageExists) {
+            return state;
+          }
+          return {
+            messages: [...state.messages, message]
+          };
+        });
 
         // Mark as read if we received the message
         if (message.sender?._id === selectedUser._id || message.senderId === selectedUser._id) {
@@ -300,10 +335,12 @@ export const useChatStore = create((set, get) => ({
           return user;
         })
       }));
-    });
+    };
+
+    socket.on("newMessage", handleNewMessage);
 
     return () => {
-      socket.off("newMessage");
+      socket.off("newMessage", handleNewMessage);
     };
   },
 
