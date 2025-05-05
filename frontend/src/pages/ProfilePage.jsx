@@ -20,14 +20,20 @@ const ProfilePage = () => {
 
   // Handle image load error (fallback to default avatar)
   const handleImageError = () => {
-    setProfileImage("/avatar.png");
+    const defaultAvatar = import.meta.env.MODE === 'development'
+      ? "/avatar.png"
+      : `${window.location.origin}/avatar.png`;
+    setProfileImage(defaultAvatar);
     console.error("Failed to load profile image, using default");
   };
 
   // Check if profile image is the missing Cloudinary image
   useEffect(() => {
     if (profileImage && profileImage.includes("Default_ProfilePic.png")) {
-      setProfileImage("/avatar.png");
+      const defaultAvatar = import.meta.env.MODE === 'development'
+        ? "/avatar.png"
+        : `${window.location.origin}/avatar.png`;
+      setProfileImage(defaultAvatar);
     }
   }, [profileImage]);
 
@@ -75,7 +81,10 @@ const ProfilePage = () => {
             <div className="relative">
               <div className="relative">
                 <img
-                  src={selectedImg || profileImage || authUser?.profilePic || "/avatar.png"}
+                  src={selectedImg || profileImage || authUser?.profilePic ||
+                    (import.meta.env.MODE === 'development'
+                      ? "/avatar.png"
+                      : `${window.location.origin}/avatar.png`)}
                   alt="Profile"
                   className="size-32 rounded-full object-cover border-4 border-base-300"
                   onError={handleImageError}

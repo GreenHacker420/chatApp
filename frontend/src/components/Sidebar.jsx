@@ -106,12 +106,16 @@ const Sidebar = () => {
                   <img
                     src={user?.profilePic && !user.profilePic.includes("Default_ProfilePic.png")
                       ? user.profilePic
-                      : "/avatar.png"}
+                      : import.meta.env.MODE === 'development'
+                        ? "/avatar.png"
+                        : `${window.location.origin}/avatar.png`}
                     alt={user?.fullName || "Unknown"}
                     className="size-12 object-cover rounded-full"
                     onError={(e) => {
                       e.target.onerror = null;
-                      e.target.src = "/avatar.png";
+                      e.target.src = import.meta.env.MODE === 'development'
+                        ? "/avatar.png"
+                        : `${window.location.origin}/avatar.png`;
                     }}
                   />
                   {onlineUsers.includes(user._id) && (

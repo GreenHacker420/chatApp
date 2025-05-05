@@ -33,6 +33,11 @@ const getBaseUrl = () => {
 const API_BASE_URL = getBaseUrl();
 console.log('🔹 Final API Base URL:', API_BASE_URL);
 
+// Helper function to check if we're in development mode
+function isDevelopment() {
+  return import.meta.env.MODE === 'development';
+}
+
 // Create axios instances for different API endpoints
 export const axiosInstance = axios.create({
   baseURL: isDevelopment() ? '/api/auth' : `${API_BASE_URL}/api/auth`,
@@ -64,10 +69,7 @@ export const usersApi = axios.create({
   }
 });
 
-// Helper function to check if we're in development mode
-function isDevelopment() {
-  return import.meta.env.MODE === 'development';
-}
+
 
 /**
  * Add interceptors to an axios instance

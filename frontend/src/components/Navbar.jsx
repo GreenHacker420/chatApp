@@ -104,7 +104,9 @@ const Navbar = () => {
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             e.target.onerror = null;
-                            e.target.src = "/avatar.png";
+                            e.target.src = import.meta.env.MODE === 'development'
+                              ? "/avatar.png"
+                              : `${window.location.origin}/avatar.png`;
                           }}
                         />
                       ) : (
