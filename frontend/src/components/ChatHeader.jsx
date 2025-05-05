@@ -1,10 +1,12 @@
-import { X, Circle, Phone, Video } from "lucide-react";
+import { X, Circle, Phone, Video, User } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import { useNavigate } from "react-router-dom";
 
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, startCall } = useChatStore();
   const { onlineUsers } = useAuthStore();
+  const navigate = useNavigate();
 
   if (!selectedUser) return null;
 
@@ -50,6 +52,13 @@ const ChatHeader = () => {
 
         {/* Call Options */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(`/profile/${selectedUser._id}`)}
+            className="btn btn-circle btn-sm btn-ghost"
+            title="View Profile"
+          >
+            <User className="w-4 h-4" />
+          </button>
           <button
             onClick={handleAudioCall}
             className="btn btn-circle btn-sm btn-ghost"

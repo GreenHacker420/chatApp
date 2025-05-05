@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Plus } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Plus, Wifi, WifiOff } from "lucide-react";
 import toast from "react-hot-toast";
 import WebRTCService from "../services/webrtc.service";
 
@@ -17,15 +17,18 @@ const CallInterface = () => {
     users
   } = useChatStore();
 
-  const { socket, authUser } = useAuthStore();
+  const { socket, user: authUser } = useAuthStore(); // Fix: use user instead of authUser
 
   const [showAddParticipant, setShowAddParticipant] = useState(false);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+  const [isLanConnection, setIsLanConnection] = useState(false);
+  const [connectionQualityInfo, setConnectionQualityInfo] = useState({ quality: 'standard', isLan: false });
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const webRTCServiceRef = useRef(null);
+  const connectionCheckInterval = useRef(null);
 
   // Initialize WebRTC service
   useEffect(() => {
@@ -45,12 +48,29 @@ const CallInterface = () => {
       }
     };
 
+    // Check if we're using a LAN connection
+    if (webRTCServiceRef.current.isUsingLanConnection) {
+      setIsLanConnection(webRTCServiceRef.current.isUsingLanConnection());
+    }
+
+    // Set up interval to check connection quality
+    connectionCheckInterval.current = setInterval(() => {
+      if (webRTCServiceRef.current && activeCall) {
+        const quality = webRTCServiceRef.current.getConnectionQuality(activeCall.userId);
+        setConnectionQualityInfo(quality);
+        setIsLanConnection(quality.isLan);
+      }
+    }, 5000); // Check every 5 seconds
+
     return () => {
       if (webRTCServiceRef.current) {
         webRTCServiceRef.current.closeAllConnections();
       }
+      if (connectionCheckInterval.current) {
+        clearInterval(connectionCheckInterval.current);
+      }
     };
-  }, [socket]);
+  }, [socket, activeCall]);
 
   // Handle call setup
   useEffect(() => {
@@ -179,7 +199,34 @@ const CallInterface = () => {
           )}
         </div>
         <button
-          onClick={endCall}
+          onClick={() => {
+            try {
+              // Clean up WebRTC connections before ending call
+              if (webRTCServiceRef.current) {
+                webRTCServiceRef.current.closeAllConnections();
+              }
+
+              // End the call in the store
+              endCall();
+
+              // Manually emit end call event if needed
+              if (!socket && authUser) {
+                console.warn("Socket not available, manually cleaning up call");
+                // Clean up local state
+                if (localStream) {
+                  localStream.getTracks().forEach(track => track.stop());
+                  setLocalStream(null);
+                }
+                if (remoteStream) {
+                  remoteStream.getTracks().forEach(track => track.stop());
+                  setRemoteStream(null);
+                }
+              }
+            } catch (error) {
+              console.error("Error ending call:", error);
+              toast.error("Error ending call");
+            }
+          }}
           className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"
         >
           <PhoneOff size={20} />
@@ -215,12 +262,43 @@ const CallInterface = () => {
         </div>
       )}
 
+      {/* Connection quality indicator */}
+      <div className="mb-3 flex justify-center">
+        <div className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${
+          isLanConnection
+            ? 'bg-green-100 text-green-800 border border-green-300'
+            : 'bg-blue-100 text-blue-800 border border-blue-300'
+        }`}>
+          {isLanConnection ? (
+            <>
+              <Wifi className="w-3 h-3" />
+              <span>LAN Connection ({connectionQualityInfo.quality === 'high' ? 'High' : 'Enhanced'} Quality)</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="w-3 h-3" />
+              <span>Internet Connection (Standard Quality)</span>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="flex justify-center space-x-4">
         <button
           onClick={() => {
             if (webRTCServiceRef.current) {
-              const newMuteState = webRTCServiceRef.current.toggleAudio();
-              toggleMute(newMuteState);
+              try {
+                const newMuteState = webRTCServiceRef.current.toggleAudio();
+                console.log("Audio toggled, new state:", newMuteState);
+                toggleMute(newMuteState);
+              } catch (error) {
+                console.error("Error toggling audio:", error);
+                // Toggle mute state directly if WebRTC function fails
+                toggleMute(!isMuted);
+              }
+            } else {
+              console.warn("WebRTC service not available, toggling state directly");
+              toggleMute(!isMuted);
             }
           }}
           className={`p-3 rounded-full ${
@@ -233,8 +311,18 @@ const CallInterface = () => {
           <button
             onClick={() => {
               if (webRTCServiceRef.current) {
-                const newVideoState = webRTCServiceRef.current.toggleVideo();
-                toggleVideo(newVideoState);
+                try {
+                  const newVideoState = webRTCServiceRef.current.toggleVideo();
+                  console.log("Video toggled, new state:", newVideoState);
+                  toggleVideo(newVideoState);
+                } catch (error) {
+                  console.error("Error toggling video:", error);
+                  // Toggle video state directly if WebRTC function fails
+                  toggleVideo(!isVideoOff);
+                }
+              } else {
+                console.warn("WebRTC service not available, toggling state directly");
+                toggleVideo(!isVideoOff);
               }
             }}
             className={`p-3 rounded-full ${

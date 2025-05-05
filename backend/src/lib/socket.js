@@ -31,6 +31,9 @@ const userSocketMap = new Map();
 // Store active group calls
 const activeGroupCalls = new Map();
 
+// Store LAN connection information for users
+const userLanInfo = new Map();
+
 export function getReceiverSocketId(userId) {
   return userSocketMap.get(userId);
 }
@@ -145,24 +148,48 @@ io.on("connection", async (socket) => {
   });
 
   // Handle WebRTC signaling
-  socket.on("webrtc-offer", ({ to, offer }) => {
+  socket.on("webrtc-offer", ({ to, offer, isLanConnection, lanIpAddresses }) => {
     console.log(`Relaying WebRTC offer from ${socket.data.userId} to ${to}`);
+    console.log(`LAN connection: ${isLanConnection}, LAN IPs: ${lanIpAddresses}`);
+
+    // Store LAN information for this user
+    if (isLanConnection && lanIpAddresses && Array.isArray(lanIpAddresses)) {
+      userLanInfo.set(socket.data.userId, {
+        isLanConnection,
+        lanIpAddresses
+      });
+    }
+
     const receiverSocketId = getReceiverSocketId(to);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("webrtc-offer", {
         from: socket.data.userId,
-        offer
+        offer,
+        isLanConnection,
+        lanIpAddresses
       });
     }
   });
 
-  socket.on("webrtc-answer", ({ to, answer }) => {
+  socket.on("webrtc-answer", ({ to, answer, isLanConnection, lanIpAddresses }) => {
     console.log(`Relaying WebRTC answer from ${socket.data.userId} to ${to}`);
+    console.log(`LAN connection: ${isLanConnection}, LAN IPs: ${lanIpAddresses}`);
+
+    // Store LAN information for this user
+    if (isLanConnection && lanIpAddresses && Array.isArray(lanIpAddresses)) {
+      userLanInfo.set(socket.data.userId, {
+        isLanConnection,
+        lanIpAddresses
+      });
+    }
+
     const receiverSocketId = getReceiverSocketId(to);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("webrtc-answer", {
         from: socket.data.userId,
-        answer
+        answer,
+        isLanConnection,
+        lanIpAddresses
       });
     }
   });
@@ -244,6 +271,31 @@ io.on("connection", async (socket) => {
       }
     }
     io.to(`groupCall:${groupId}`).emit("participantLeft", { userId });
+  });
+
+  // Handle LAN connection information
+  socket.on("lan-connection-info", ({ lanIpAddresses }) => {
+    if (!socket.data.userId) return;
+
+    console.log(`Received LAN info from ${socket.data.userId}:`, lanIpAddresses);
+
+    // Store LAN information for this user
+    if (lanIpAddresses && Array.isArray(lanIpAddresses)) {
+      userLanInfo.set(socket.data.userId, {
+        isLanConnection: true,
+        lanIpAddresses
+      });
+
+      // Notify other users who might be on the same LAN
+      for (const [userId, socketId] of userSocketMap.entries()) {
+        if (userId !== socket.data.userId) {
+          io.to(socketId).emit("lan-connection-info", {
+            userId: socket.data.userId,
+            lanIpAddresses
+          });
+        }
+      }
+    }
   });
 });
 

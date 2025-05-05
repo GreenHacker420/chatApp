@@ -34,10 +34,16 @@ const ChatContainer = () => {
   useEffect(() => {
     if (!selectedUser?._id) return;
 
+    console.log("Loading messages for user:", selectedUser._id);
     getMessages(selectedUser._id);
     const unsubscribe = subscribeToMessages();
 
-    // No need to handle newMessage here as it's already handled in subscribeToMessages
+    // Debug socket connection
+    if (socket) {
+      console.log("Socket connected:", socket.connected);
+    } else {
+      console.log("Socket not available in ChatContainer");
+    }
 
     return () => {
       if (socket) {
@@ -149,12 +155,23 @@ const ChatContainer = () => {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => {
+        {/* Display messages in reverse chronological order (newest first) */}
+        {[...messages].map((message) => {
           // Check if the message was sent by the current user
           const isSentByMe =
+            // Check if sender object exists and matches current user
             (message.sender?._id === authUser._id) ||
-            (message.senderId === authUser._id) ||
-            (message.senderId && message.senderId.toString() === authUser._id.toString());
+            // Check if senderId is a string and matches current user
+            (typeof message.senderId === 'string' && message.senderId === authUser._id) ||
+            // Check if senderId is an object with _id that matches current user
+            (message.senderId?._id && message.senderId._id.toString() === authUser._id.toString());
+
+          console.log(`Message ${message._id} - Sent by me: ${isSentByMe}`, {
+            messageId: message._id,
+            senderId: typeof message.senderId === 'object' ? message.senderId?._id : message.senderId,
+            authUserId: authUser._id,
+            content: message.content || message.text
+          });
 
           // Use the correct profile picture based on who sent the message
           const senderProfilePic = isSentByMe
@@ -210,7 +227,9 @@ const ChatContainer = () => {
                   </div>
                 )}
 
-                {message.text || message.content}
+                <div className="whitespace-pre-wrap break-words">
+                  {message.content || message.text || ""}
+                </div>
                 {message.image && (
                   <img
                     src={message.image}

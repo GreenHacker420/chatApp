@@ -25,6 +25,8 @@ export const useChatStore = create((set, get) => ({
   activeCall: null,
   isIncomingCall: false,
   incomingCallData: null,
+  isMuted: false,
+  isVideoOff: false,
 
   groupCallParticipants: [],
   groupCallInvitations: [],
@@ -69,8 +71,12 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await messagesApi.get(`/${userId}?page=${page}`);
 
+      // Log the messages received from the API
+      console.log(`Received ${res.data.messages.length} messages from API, page ${page}`);
+
       set((state) => {
         if (page === 1) {
+          // For first page, just use the messages from the API (already sorted by createdAt: -1)
           return {
             messages: res.data.messages,
             hasMoreMessages: res.data.messages.length > 0,
@@ -78,11 +84,16 @@ export const useChatStore = create((set, get) => ({
           };
         }
 
+        // For pagination, filter out duplicates and maintain correct order
         const existingMessageIds = new Set(state.messages.map(msg => msg._id));
         const newMessages = res.data.messages.filter(msg => !existingMessageIds.has(msg._id));
 
+        // Combine existing and new messages, then sort by createdAt in descending order
+        const allMessages = [...state.messages, ...newMessages];
+        allMessages.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
         return {
-          messages: [...state.messages, ...newMessages],
+          messages: allMessages,
           hasMoreMessages: newMessages.length > 0,
           currentPage: page,
         };
@@ -161,14 +172,17 @@ export const useChatStore = create((set, get) => ({
       // Create message data - handle both string and object content
       const messageData = {
         content: typeof content === 'string' ? content : content.content || content.text || '',
-        receiverId: content.receiverId || selectedUser._id
+        receiverId: typeof content === 'string' ? selectedUser._id : (content.receiverId || selectedUser._id)
       };
 
-      if (content.image) {
-        messageData.image = content.image;
-      }
-      if (content.video) {
-        messageData.video = content.video;
+      // Only add media if it exists
+      if (typeof content !== 'string') {
+        if (content.image) {
+          messageData.image = content.image;
+        }
+        if (content.video) {
+          messageData.video = content.video;
+        }
       }
 
       // Optimistic update with clear sender information
@@ -179,6 +193,8 @@ export const useChatStore = create((set, get) => ({
         sender: authUser,
         senderId: authUser._id,
         receiverId: messageData.receiverId,
+        image: messageData.image || null,
+        video: messageData.video || null,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
         isRead: false
@@ -197,6 +213,12 @@ export const useChatStore = create((set, get) => ({
         data.text = data.content;
       } else if (data.text && !data.content) {
         data.content = data.text;
+      }
+
+      // If both fields are missing or null, set them to empty string
+      if (!data.content && !data.text) {
+        data.content = "";
+        data.text = "";
       }
 
       // Add sender information if not present
@@ -285,10 +307,39 @@ export const useChatStore = create((set, get) => ({
       console.log("Received message via socket:", message);
 
       // Ensure message has consistent field names
+      console.log("Processing received message:", {
+        id: message._id,
+        hasContent: !!message.content,
+        hasText: !!message.text,
+        senderId: message.senderId,
+        receiverId: message.receiverId
+      });
+
       if (message.content && !message.text) {
         message.text = message.content;
+        console.log("Set text from content");
       } else if (message.text && !message.content) {
         message.content = message.text;
+        console.log("Set content from text");
+      }
+
+      // If both fields are missing or null, set them to empty string
+      if (!message.content && !message.text) {
+        message.content = "";
+        message.text = "";
+        console.log("Both content and text were missing, set to empty string");
+      }
+
+      // Ensure we have sender information
+      if (!message.sender && message.senderId) {
+        const senderUser = get().users.find(u => u._id === message.senderId);
+        if (senderUser) {
+          message.sender = {
+            _id: senderUser._id,
+            fullName: senderUser.fullName,
+            profilePic: senderUser.profilePic
+          };
+        }
       }
 
       // Update messages if chat is open with the correct user
@@ -411,7 +462,8 @@ export const useChatStore = create((set, get) => ({
         });
         toast.success(SUCCESS_MESSAGES.CALL_INITIATED);
       } else {
-        toast.info(SUCCESS_MESSAGES.USER_OFFLINE);
+        // Use toast.success instead of toast.info which might not be available
+        toast.success(SUCCESS_MESSAGES.USER_OFFLINE);
       }
     } catch (error) {
       console.error("Error starting call:", error);
@@ -505,7 +557,7 @@ export const useChatStore = create((set, get) => ({
     return () => {
       const { activeCall } = get();
       const socket = useAuthStore.getState().socket;
-      const authUser = useAuthStore.getState().authUser;
+      const user = useAuthStore.getState().user;
 
       if (!activeCall) return;
 
@@ -515,24 +567,37 @@ export const useChatStore = create((set, get) => ({
       }
 
       // Emit end call event if socket is available
-      if (socket && authUser) {
-        socket.emit("endCall", {
-          userId: authUser._id,
-          remoteUserId: activeCall.userId
-        });
+      if (socket && socket.connected && user) {
+        try {
+          console.log("Emitting endCall event:", {
+            userId: user._id,
+            remoteUserId: activeCall.userId
+          });
+
+          socket.emit("endCall", {
+            userId: user._id,
+            remoteUserId: activeCall.userId
+          });
+        } catch (error) {
+          console.error("Error emitting endCall event:", error);
+        }
       } else {
-        console.warn("⚠️ Socket not available for ending call");
+        console.warn("⚠️ Socket not available for ending call", {
+          socketExists: !!socket,
+          socketConnected: socket?.connected,
+          userExists: !!user
+        });
       }
 
-      // Debounce the state update
-      endCallTimeout = setTimeout(() => {
-        set({
-          isCallActive: false,
-          activeCall: null
-        });
-      }, 100);
+      // Reset call state
+      set({
+        isCallActive: false,
+        activeCall: null,
+        isMuted: false,
+        isVideoOff: false
+      });
 
-      toast.info("Call ended");
+      toast.success(SUCCESS_MESSAGES.CALL_ENDED);
     };
   })(),
 
@@ -604,5 +669,17 @@ export const useChatStore = create((set, get) => ({
         (inv) => inv.id !== invitationId
       ),
     }));
+  },
+
+  // ✅ Toggle audio mute state
+  toggleMute: (isMuted) => {
+    console.log("Toggling mute state to:", isMuted);
+    set({ isMuted });
+  },
+
+  // ✅ Toggle video state
+  toggleVideo: (isVideoOff) => {
+    console.log("Toggling video state to:", isVideoOff);
+    set({ isVideoOff });
   },
 }));

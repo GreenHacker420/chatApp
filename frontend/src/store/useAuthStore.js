@@ -65,16 +65,20 @@ const loadPersistedState = () => {
     const persistedState = localStorage.getItem('authState');
     if (persistedState) {
       const parsedState = JSON.parse(persistedState);
+      console.log("🔹 Loading persisted auth state");
       // Only restore user data, not socket or other volatile state
       return {
         user: parsedState.user,
+        isAuthenticated: !!parsedState.user, // Set isAuthenticated based on user presence
         isVerified: parsedState.isVerified || false
       };
     }
   } catch (error) {
     console.error('Error loading persisted state:', error);
+    // Clear corrupted state
+    localStorage.removeItem('authState');
   }
-  return { user: null, isVerified: false };
+  return { user: null, isAuthenticated: false, isVerified: false };
 };
 
 export const useAuthStore = create((set, get) => ({
@@ -91,53 +95,117 @@ export const useAuthStore = create((set, get) => ({
       set({ isLoading: true });
       console.log("🔹 Checking authentication status...");
 
+      // Get persisted state first
+      const persistedState = localStorage.getItem('authState');
+      let persistedUser = null;
+
+      if (persistedState) {
+        try {
+          const parsed = JSON.parse(persistedState);
+          persistedUser = parsed.user;
+          console.log("🔹 Found persisted user:", persistedUser?.email);
+        } catch (e) {
+          console.error("Error parsing persisted state:", e);
+        }
+      }
+
       // Make request with credentials to ensure cookies are sent
-      const response = await authApi.get("check", {
-        withCredentials: true
-      });
-
-      console.log("✅ Auth check response:", response.status);
-
-      if (response.data?._id) {
-        console.log("✅ User authenticated:", response.data.email);
-
-        // Set user in state
-        set({
-          user: response.data,
-          isAuthenticated: true
+      try {
+        const response = await authApi.get("check", {
+          withCredentials: true,
+          timeout: 5000 // 5 second timeout
         });
 
-        // Connect socket
-        get().connectSocket();
+        console.log("✅ Auth check response:", response.status);
 
-        // Persist user data
-        localStorage.setItem('authState', JSON.stringify({
-          user: response.data,
-          isAuthenticated: true,
-          isVerified: response.data.verified || false
-        }));
+        if (response.data?._id) {
+          console.log("✅ User authenticated:", response.data.email);
 
-        return true;
-      } else {
-        console.log("⚠️ No user data in response");
+          // Set user in state
+          set({
+            user: response.data,
+            isAuthenticated: true
+          });
+
+          // Connect socket
+          get().connectSocket();
+
+          // Persist user data
+          localStorage.setItem('authState', JSON.stringify({
+            user: response.data,
+            isAuthenticated: true,
+            isVerified: response.data.verified || false
+          }));
+
+          return true;
+        } else {
+          console.log("⚠️ No user data in response");
+
+          // If we have a persisted user but server returned null,
+          // keep the persisted user for this session to prevent logout
+          if (persistedUser) {
+            console.log("🔹 Using persisted user data instead of logging out");
+            set({
+              user: persistedUser,
+              isAuthenticated: true
+            });
+
+            // Reconnect socket with persisted user
+            get().connectSocket();
+
+            return true;
+          } else {
+            // No persisted user, clear state
+            set({ user: null, isAuthenticated: false });
+            localStorage.removeItem('authState');
+            return false;
+          }
+        }
+      } catch (apiError) {
+        console.error("❌ Auth check API error:", apiError);
+
+        // If API call fails but we have persisted user, use that instead of logging out
+        if (persistedUser) {
+          console.log("🔹 API call failed, using persisted user data");
+          set({
+            user: persistedUser,
+            isAuthenticated: true
+          });
+
+          // Reconnect socket with persisted user
+          get().connectSocket();
+
+          return true;
+        }
+
+        // No persisted user, clear state
         set({ user: null, isAuthenticated: false });
-        localStorage.removeItem('authState');
         return false;
       }
     } catch (error) {
       console.error("❌ Auth check error:", error);
 
-      // Clear user data on error
-      set({ user: null, isAuthenticated: false });
-      localStorage.removeItem('authState');
-
-      // Retry on network error
-      if (!error.response && error.code === 'ERR_NETWORK') {
-        console.log("⚠️ Network error, retrying in 1s...");
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return get().checkAuth();
+      // Get persisted state as fallback
+      try {
+        const persistedState = localStorage.getItem('authState');
+        if (persistedState) {
+          const parsed = JSON.parse(persistedState);
+          if (parsed.user) {
+            console.log("🔹 Using persisted user as fallback");
+            set({
+              user: parsed.user,
+              isAuthenticated: true
+            });
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing persisted state:", e);
       }
 
+      // Clear user data on error if no fallback
+      set({ user: null, isAuthenticated: false });
+      localStorage.removeItem('authState');
       return false;
     } finally {
       set({ isLoading: false });
@@ -299,7 +367,7 @@ export const useAuthStore = create((set, get) => ({
         : formData.profilePic;
 
       const response = await authApi.put(
-        "update-profile",
+        "profile",
         { ...formData, profilePic }
       );
 

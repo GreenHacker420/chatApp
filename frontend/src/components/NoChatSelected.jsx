@@ -1,8 +1,6 @@
-import { MessageSquare, Users } from "lucide-react";
-import { useChatStore } from "../store/useChatStore";
+import { MessageSquare } from "lucide-react";
 
 const NoChatSelected = () => {
-  const { openNewChatModal } = useChatStore(); // ✅ Function to start a new chat
 
   return (
     <div className="w-full flex flex-1 flex-col items-center justify-center p-10 sm:p-16 bg-base-100/50 animate-fadeIn">
@@ -10,7 +8,7 @@ const NoChatSelected = () => {
         {/* ✅ Animated Icon */}
         <div className="flex justify-center gap-4">
           <div
-            className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center 
+            className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center
             justify-center animate-bounce shadow-lg"
           >
             <MessageSquare className="w-8 h-8 text-primary" />
@@ -23,14 +21,17 @@ const NoChatSelected = () => {
           Select a conversation from the sidebar or start a new one.
         </p>
 
-        {/* ✅ Call-to-Action Button */}
-        {/* <button
-          onClick={openNewChatModal}
-          className="btn btn-primary flex items-center gap-2 mt-4"
-        >
-          <Users className="w-5 h-5" />
-          Start a New Chat
-        </button> */}
+        {/* ✅ Call-to-Action Buttons */}
+        <div className="flex justify-center gap-4 mt-6">
+          {/* Uncomment if you want to enable the new chat button */}
+          {/* <button
+            onClick={openNewChatModal}
+            className="btn btn-primary flex items-center gap-2"
+          >
+            <Users className="w-5 h-5" />
+            Start a New Chat
+          </button> */}
+        </div>
       </div>
     </div>
   );

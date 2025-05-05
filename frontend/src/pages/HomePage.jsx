@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
+import { Link } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
+import { User } from "lucide-react";
 
 const HomePage = () => {
   const { selectedUser } = useChatStore();
@@ -58,6 +60,15 @@ const HomePage = () => {
       >
         {isSidebarOpen ? "❌ Close Sidebar" : "📂 Open Sidebar"}
       </button>
+
+      {/* Profile Button for Mobile */}
+      <Link
+        to="/profile"
+        className="fixed bottom-6 right-6 btn btn-circle btn-primary sm:hidden"
+        aria-label="View Profile"
+      >
+        <User className="w-5 h-5" />
+      </Link>
     </div>
   );
 };

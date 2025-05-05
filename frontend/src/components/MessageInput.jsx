@@ -58,15 +58,27 @@ const MessageInput = () => {
     if (!text.trim() && !mediaPreview) return;
 
     try {
+      console.log("Sending message to:", selectedUser?.fullName || selectedUser?._id);
+
+      // Only send if there's actual content or media
+      const trimmedText = text.trim();
       const messageData = {
-        content: text.trim(), // Use content instead of text for consistency
+        content: trimmedText, // Use content field as expected by backend
         receiverId: selectedUser._id,
         image: mediaType === "image" ? mediaPreview : null,
         video: mediaType === "video" ? mediaPreview : null,
       };
 
+      console.log("Message data prepared:", {
+        content: trimmedText ? "Text content present" : "No text content",
+        receiverId: selectedUser._id,
+        hasImage: !!messageData.image,
+        hasVideo: !!messageData.video
+      });
+
       // Send message through the store which handles API call and socket emission
-      await sendMessage(messageData);
+      const result = await sendMessage(messageData);
+      console.log("Message sent result:", result ? "Success" : "Failed");
 
       // ✅ Emit "stopTyping" event when message is sent
       if (socket && selectedUser) {
@@ -74,6 +86,12 @@ const MessageInput = () => {
         socket.emit("stopTyping", {
           senderId: authUserId,
           receiverId: selectedUser._id
+        });
+        console.log("Stop typing event emitted");
+      } else {
+        console.log("Socket not available for stop typing event:", {
+          socketExists: !!socket,
+          selectedUserExists: !!selectedUser
         });
       }
 

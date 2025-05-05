@@ -125,13 +125,31 @@ const addInterceptors = (instance, name) => {
  * Handle authentication errors
  */
 const handleAuthError = () => {
-  // Clear local storage auth data
-  localStorage.removeItem('authState');
-  toast.error(ERROR_MESSAGES.SESSION_EXPIRED);
+  // Get persisted state first
+  const persistedState = localStorage.getItem('authState');
 
-  // Only redirect if not already on login page
-  if (!window.location.pathname.includes('/login')) {
-    window.location.href = '/login';
+  // Only clear auth state and redirect if we're not on a refresh/navigation
+  // This prevents logout on page refresh or navigation
+  const isPageRefresh = window.performance &&
+                       (window.performance.getEntriesByType('navigation')[0]?.type === 'reload' ||
+                        sessionStorage.getItem('pageRefreshed') === 'true');
+
+  // Set flag for page refresh detection
+  sessionStorage.setItem('pageRefreshed', 'false');
+
+  if (document.visibilityState === 'visible' && !document.hidden && !isPageRefresh) {
+
+    // Clear local storage auth data
+    localStorage.removeItem('authState');
+    toast.error(ERROR_MESSAGES.SESSION_EXPIRED);
+
+    // Only redirect if not already on login page
+    if (!window.location.pathname.includes('/login')) {
+      window.location.href = '/login';
+    }
+  } else if (persistedState) {
+    // On refresh/navigation, keep the persisted state
+    console.log("Auth error during page transition, keeping persisted state");
   }
 };
 

@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { Camera, Mail, User, ShieldCheck, Globe } from "lucide-react";
+import { Camera, Mail, User, ShieldCheck, Globe, LogOut } from "lucide-react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 const ProfilePage = () => {
-  const { user, isUpdatingProfile, updateProfile } = useAuthStore();
+  const { user, isUpdatingProfile, updateProfile, logout } = useAuthStore();
   const authUser = user; // Ensure we have a consistent reference to the user
   const [selectedImg, setSelectedImg] = useState(null);
   const [profileImage, setProfileImage] = useState("");
+  const navigate = useNavigate();
 
   // Effect to handle profile image loading and error handling
   useEffect(() => {
@@ -171,6 +173,18 @@ const ProfilePage = () => {
               </div>
             </div>
           </div>
+
+          {/* Logout Button */}
+          <button
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+            className="btn btn-error w-full gap-2"
+          >
+            <LogOut className="w-5 h-5" />
+            Logout
+          </button>
         </div>
       </div>
     </div>

@@ -5,7 +5,8 @@ const messageSchema = new mongoose.Schema(
     senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     groupId: { type: mongoose.Schema.Types.ObjectId, ref: "Group", default: null },
-    text: { type: String, default: null }, // ✅ Default to null for better structure
+    content: { type: String, default: null }, // Primary field for message content
+    text: { type: String, default: null }, // For backward compatibility
     image: { type: String, default: null },
     video: { type: String, default: null }, // ✅ Added missing video field
     isRead: { type: Boolean, default: false }, // ✅ Track read status

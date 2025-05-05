@@ -7,6 +7,7 @@ import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import SettingsPage from "./pages/SettingsPage";
 import ProfilePage from "./pages/ProfilePage";
+import UserProfilePage from "./pages/UserProfilePage";
 import GoogleAuthSuccess from "./pages/GoogleAuthSuccess";
 import Navbar from "./components/Navbar";
 import CallInterface from "./components/CallInterface";
@@ -20,7 +21,40 @@ const App = () => {
   // Check authentication status on app load
   useEffect(() => {
     console.log("🔹 App mounted, checking auth status...");
+
+    // Set page refresh flag for auth error handling
+    sessionStorage.setItem('pageRefreshed', 'true');
+
+    // If we have a user in localStorage, connect socket immediately
+    // This prevents the socket disconnection during page refresh
+    const persistedState = localStorage.getItem('authState');
+    if (persistedState) {
+      try {
+        const { user } = JSON.parse(persistedState);
+        if (user?._id) {
+          console.log("🔹 Found persisted user, connecting socket");
+          // Import the connectSocket function
+          const { connectSocket } = require('./socket.js');
+          connectSocket(user._id);
+        }
+      } catch (error) {
+        console.error("Error parsing persisted state:", error);
+      }
+    }
+
+    // Then verify with the server
     checkAuth();
+
+    // Add beforeunload event to detect page navigation
+    const handleBeforeUnload = () => {
+      sessionStorage.setItem('pageRefreshed', 'true');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, [checkAuth]);
 
   // Show loading spinner while checking auth status
@@ -62,6 +96,10 @@ const App = () => {
         <Route
           path="/profile"
           element={user ? <ProfilePage /> : <Navigate to="/login" />}
+        />
+        <Route
+          path="/profile/:userId"
+          element={user ? <UserProfilePage /> : <Navigate to="/login" />}
         />
         <Route path="/google-auth-success" element={<GoogleAuthSuccess />} />
       </Routes>

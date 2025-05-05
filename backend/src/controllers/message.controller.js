@@ -133,22 +133,44 @@ export const sendMessage = async (req, res) => {
       mediaType = "video";
     }
 
+    // Log the message content for debugging
+    console.log("Creating new message with content:", content);
+
     const newMessage = new Message({
       senderId,
       receiverId,
-      content,
+      content: content || null,
+      text: content || null, // Set both fields for consistency
       image: mediaType === "image" ? mediaUrl : null,
       video: mediaType === "video" ? mediaUrl : null,
       isRead: false,
     });
 
+    console.log("New message object:", {
+      senderId,
+      receiverId,
+      content: content ? "Content present" : "No content",
+      text: content ? "Text present" : "No text",
+      hasImage: mediaType === "image",
+      hasVideo: mediaType === "video"
+    });
+
     await newMessage.save();
+
+    // Populate both sender and receiver information for proper display
     await newMessage.populate("senderId", "fullName profilePic");
+    await newMessage.populate("receiverId", "fullName profilePic");
 
     // ✅ Notify receiver in real-time
     const receiverSocketId = getReceiverSocketId(receiverId);
+    console.log("Receiver socket ID:", receiverSocketId || "Not found");
+
     if (receiverSocketId) {
+      console.log("Emitting newMessage event to socket:", receiverSocketId);
       io.to(receiverSocketId).emit("newMessage", newMessage);
+      console.log("Message emitted successfully");
+    } else {
+      console.log("Receiver not online, message will be delivered when they connect");
     }
 
     res.status(201).json(newMessage);
@@ -206,7 +228,7 @@ export const deleteMessage = async (req, res) => {
       if (!isSender && !isAdmin) {
         throw new ApiError(403, "Only the sender or admin can delete a message for everyone");
       }
-      
+
       // Delete for everyone
       message.isDeletedForEveryone = true;
       message.deletedFor = [];
