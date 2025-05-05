@@ -42,10 +42,60 @@ const LoginPage = () => {
   };
 
   // ✅ Google Login Handler
-  const googleLogin = () => {
-    const apiUrl = config.API.BASE_URL;
-    window.location.href = `${apiUrl}/api/auth/google`;
+  const handleGoogleLogin = async () => {
+    try {
+      // Load the Google API
+      const { google } = window;
+
+      if (!google) {
+        toast.error("Google API not available");
+        return;
+      }
+
+      // Debug the client ID
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+      console.log("Google Client ID from env:", clientId);
+      console.log("Google Client ID from config:", config.GOOGLE.CLIENT_ID);
+
+      if (!clientId) {
+        toast.error("Google Client ID is missing. Please check your environment configuration.");
+        return;
+      }
+
+      // Initialize Google Sign-In
+      const auth2 = google.accounts.oauth2.initCodeClient({
+        client_id: clientId, // Use directly from env
+        scope: 'profile email',
+        callback: async (response) => {
+          if (response.error) {
+            toast.error("Google authentication failed");
+            return;
+          }
+
+          try {
+            // We have an authorization code, not an access token
+            // Send the code to our backend to handle the token exchange
+            console.log("Google auth code received, sending to backend");
+
+            // Call our authentication function with the code
+            await useAuthStore.getState().googleLogin({ code: response.code }, navigate);
+          } catch (error) {
+            console.error("Google auth error:", error);
+            toast.error("Failed to authenticate with Google");
+          }
+        }
+      });
+
+      // Start the Google OAuth flow
+      auth2.requestCode();
+    } catch (error) {
+      console.error("Google login error:", error);
+      toast.error("Failed to initialize Google login");
+    }
   };
+
+  // We no longer need to fetch Google user info directly
+  // The backend will handle the token exchange and user info fetching
 
   return (
     <div className="h-screen grid lg:grid-cols-2">
@@ -141,7 +191,7 @@ const LoginPage = () => {
 
           {/* ✅ Google Login Button */}
           <button
-            onClick={googleLogin}
+            onClick={handleGoogleLogin}
             className="btn btn-outline w-full flex items-center gap-2"
             disabled={isLoggingIn} // ✅ Prevents multiple clicks
           >

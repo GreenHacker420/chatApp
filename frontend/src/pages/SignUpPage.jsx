@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare, User } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import AuthImagePattern from "../components/AuthImagePattern";
 import toast from "react-hot-toast";
+import config from "../config/env.js";
 
 const SignUpPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -15,6 +16,7 @@ const SignUpPage = () => {
   const [errors, setErrors] = useState({});
 
   const { signup, isSigningUp } = useAuthStore();
+  const navigate = useNavigate();
 
   // ✅ Validate Form Inputs
   const validateForm = () => {
@@ -42,6 +44,62 @@ const SignUpPage = () => {
       toast.error("Signup failed. Try again.");
     }
   };
+
+  // ✅ Google Login Handler
+  const handleGoogleLogin = async () => {
+    try {
+      // Load the Google API
+      const { google } = window;
+
+      if (!google) {
+        toast.error("Google API not available");
+        return;
+      }
+
+      // Debug the client ID
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+      console.log("Google Client ID from env:", clientId);
+      console.log("Google Client ID from config:", config.GOOGLE.CLIENT_ID);
+
+      if (!clientId) {
+        toast.error("Google Client ID is missing. Please check your environment configuration.");
+        return;
+      }
+
+      // Initialize Google Sign-In
+      const auth2 = google.accounts.oauth2.initCodeClient({
+        client_id: clientId, // Use directly from env
+        scope: 'profile email',
+        callback: async (response) => {
+          if (response.error) {
+            toast.error("Google authentication failed");
+            return;
+          }
+
+          try {
+            // We have an authorization code, not an access token
+            // Send the code to our backend to handle the token exchange
+            console.log("Google auth code received, sending to backend");
+
+            // Call our authentication function with the code
+            await useAuthStore.getState().googleLogin({ code: response.code }, navigate);
+          } catch (error) {
+            console.error("Google auth error:", error);
+            toast.error("Failed to authenticate with Google");
+          }
+        }
+      });
+
+      // Start the Google OAuth flow
+      auth2.requestCode();
+    } catch (error) {
+      console.error("Google login error:", error);
+      toast.error("Failed to initialize Google login");
+    }
+  };
+
+  // We no longer need to fetch Google user info directly
+  // The backend will handle the token exchange and user info fetching
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
@@ -134,6 +192,22 @@ const SignUpPage = () => {
               )}
             </button>
           </form>
+
+          {/* Google Signup Button */}
+          <div className="mt-4">
+            <button
+              onClick={handleGoogleLogin}
+              className="btn btn-outline w-full flex items-center gap-2"
+              disabled={isSigningUp}
+            >
+              <img
+                src="https://cdn-icons-png.flaticon.com/512/720/720255.png"
+                alt="Google"
+                className="h-5 w-5"
+              />
+              Sign up with Google
+            </button>
+          </div>
 
           {/* Sign In Link */}
           <div className="text-center">

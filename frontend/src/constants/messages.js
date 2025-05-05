@@ -1,5 +1,10 @@
 export const ERROR_MESSAGES = {
+  LOGIN: 'Login failed. Please check your credentials.',
+  LOGOUT: 'Logout failed. Please try again.',
+  SIGNUP: 'Signup failed. Please try again.',
   GOOGLE_AUTH: 'Google authentication failed. Please try again.',
+  VERIFICATION_EMAIL: 'Failed to send verification email.',
+  PASSWORD_RESET: 'Password reset failed. Please try again.',
   FETCH_USERS: 'Failed to fetch users. Please try again.',
   SEND_MESSAGE: 'Failed to send message. Please try again.',
   NETWORK: 'Network error. Please check your connection.',
@@ -10,6 +15,13 @@ export const ERROR_MESSAGES = {
 };
 
 export const SUCCESS_MESSAGES = {
+  LOGIN: 'Logged in successfully',
+  LOGOUT: 'Logged out successfully',
+  SIGNUP: 'Account created successfully',
+  GOOGLE_AUTH: 'Google authentication successful',
+  PROFILE_UPDATE: 'Profile updated successfully',
+  VERIFICATION_EMAIL: 'Verification email sent',
+  PASSWORD_RESET: 'Password reset successful',
   MESSAGE_SENT: 'Message sent successfully',
   MESSAGE_DELETED: 'Message deleted successfully',
   MESSAGE_DELETED_EVERYONE: 'Message deleted for everyone',
@@ -17,4 +29,4 @@ export const SUCCESS_MESSAGES = {
   CALL_CONNECTED: 'Call connected',
   CALL_ENDED: 'Call ended',
   USER_OFFLINE: 'User is offline. They will be notified when they come online.',
-}; 
+};

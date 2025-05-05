@@ -13,7 +13,8 @@ import {
   changePassword,
   updatePassword,
   deleteAccount,
-  getProfile
+  getProfile,
+  googleAuth
 } from "../controllers/auth.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { rateLimiter, loginRateLimiter } from "../middleware/rateLimiter.middleware.js";
@@ -25,6 +26,7 @@ const router = express.Router();
 // Public routes
 router.post("/signup", signup);
 router.post("/login", loginRateLimiter, login);
+router.post("/google-login", googleAuth);
 
 // This should be protected but allow unauthenticated access
 router.get("/check", (req, res, next) => {
@@ -53,10 +55,10 @@ router.get("/google", passport.authenticate("google", {
   prompt: "select_account"
 }));
 
-router.get("/google/callback", 
-  passport.authenticate("google", { 
+router.get("/google/callback",
+  passport.authenticate("google", {
     session: false,
-    failureRedirect: config.isDevelopment 
+    failureRedirect: config.isDevelopment
       ? "http://localhost:5173/login?error=google_auth_failed"
       : `${config.CLIENT.URL}/login?error=google_auth_failed`
   }),
@@ -80,10 +82,27 @@ router.get("/google/callback",
     const successRedirect = config.isDevelopment
       ? "http://localhost:5173"
       : config.CLIENT.URL;
-    
+
     res.redirect(successRedirect);
   }
 );
+
+// Google auth success endpoint for frontend to fetch user data
+router.get("/google/success", protectRoute, (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+
+  res.status(200).json({
+    user: {
+      _id: req.user._id,
+      fullName: req.user.fullName,
+      email: req.user.email,
+      profilePic: req.user.profilePic,
+      verified: req.user.verified || true
+    }
+  });
+});
 
 router.get("/test", protectRoute, (req, res) => {
   res.json({

@@ -5,6 +5,68 @@ import cloudinary from "../lib/cloudinary.js";
 import sendEmail from "../utils/sendEmail.js";
 import crypto from "crypto";
 import Token from "../models/token.model.js";
+import axios from "axios";
+import config from "../config/env.js";
+
+// Helper function to exchange authorization code for tokens
+const exchangeCodeForTokens = async (code) => {
+  try {
+    console.log("🔹 Exchanging code for tokens");
+
+    const tokenUrl = 'https://oauth2.googleapis.com/token';
+    const params = new URLSearchParams({
+      code,
+      client_id: config.GOOGLE.CLIENT_ID,
+      client_secret: config.GOOGLE.CLIENT_SECRET,
+      redirect_uri: 'postmessage', // Special value for client-side flow
+      grant_type: 'authorization_code'
+    });
+
+    const response = await axios.post(tokenUrl, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    console.log("✅ Token exchange successful");
+    return response.data;
+  } catch (error) {
+    console.error("❌ Token exchange error:", error.message);
+    if (error.response) {
+      console.error("Response data:", error.response.data);
+    }
+    throw error;
+  }
+};
+
+// Helper function to fetch user info from Google
+const fetchGoogleUserInfo = async (accessToken) => {
+  try {
+    console.log("🔹 Fetching user info from Google");
+
+    const response = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    console.log("✅ User info fetched successfully");
+
+    // Map Google response to our expected format
+    return {
+      email: response.data.email,
+      name: response.data.name,
+      picture: response.data.picture
+    };
+  } catch (error) {
+    console.error("❌ Error fetching user info:", error.message);
+    if (error.response) {
+      console.error("Response status:", error.response.status);
+      console.error("Response data:", error.response.data);
+    }
+    throw error;
+  }
+};
 
 // ✅ Sign Up
 export const signup = async (req, res) => {
@@ -98,33 +160,56 @@ export const signup = async (req, res) => {
 // ✅ Login
 export const login = async (req, res) => {
   try {
+    console.log("🔹 Login attempt for:", req.body.email);
     const { email, password } = req.body;
 
+    // Find user by email with password included
     const user = await User.findOne({ email }).select("+password");
 
+    // Check if user exists and has a password
     if (!user || !user.password) {
+      console.log("❌ Login failed: Invalid credentials");
       return res.status(400).json({ message: "Invalid email or password." });
     }
 
-    if (!user.verified) {
+    // Check if email is verified
+    if (!user.verified && !user.isGoogleAuth) {
+      console.log("❌ Login failed: Email not verified");
       return res.status(400).json({ message: "Please verify your email before logging in." });
     }
 
+    // Verify password
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
+      console.log("❌ Login failed: Incorrect password");
       return res.status(400).json({ message: "Invalid email or password." });
     }
 
-    generateToken(user._id, res);
+    // Generate JWT token and set cookie
+    const token = generateToken(user._id, res);
+    console.log("✅ Login successful for:", user.email);
+    console.log("✅ Token generated:", token ? "Success" : "Failed");
 
+    // Log cookie details for debugging
+    const cookieOptions = {
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      httpOnly: true,
+      path: "/",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      secure: process.env.NODE_ENV === "production"
+    };
+    console.log("✅ Cookie options:", JSON.stringify(cookieOptions));
+
+    // Return user data (excluding sensitive information)
     res.status(200).json({
       _id: user._id,
       fullName: user.fullName,
       email: user.email,
       profilePic: user.profilePic,
+      verified: user.verified || user.isGoogleAuth
     });
   } catch (error) {
-    console.error("Login Error:", error);
+    console.error("❌ Login Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
@@ -132,16 +217,21 @@ export const login = async (req, res) => {
 // ✅ Logout
 export const logout = (req, res) => {
   try {
+    console.log("🔹 Logout request received");
+
+    // Clear the JWT cookie with proper options
     res.clearCookie("jwt", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      expires: new Date(0),
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      path: "/",
+      expires: new Date(0), // Immediate expiration
     });
 
+    console.log("✅ User logged out successfully");
     res.status(200).json({ message: "Logged out successfully." });
   } catch (error) {
-    console.error("Logout Error:", error);
+    console.error("❌ Logout Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
@@ -408,6 +498,125 @@ export const getProfile = async (req, res) => {
   } catch (error) {
     console.error("Get Profile Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Google Authentication
+export const googleAuth = async (req, res) => {
+  try {
+    console.log("🔹 Google Auth Request Received");
+    const { userData } = req.body;
+
+    // Check if we received an authorization code
+    if (userData && userData.code) {
+      console.log("✅ Received Google authorization code");
+
+      // Exchange the code for tokens
+      const tokenResponse = await exchangeCodeForTokens(userData.code);
+
+      if (!tokenResponse || !tokenResponse.access_token) {
+        console.error("❌ Failed to exchange code for tokens");
+        return res.status(400).json({ message: "Failed to authenticate with Google" });
+      }
+
+      // Get user info using the access token
+      const userInfo = await fetchGoogleUserInfo(tokenResponse.access_token);
+
+      if (!userInfo || !userInfo.email) {
+        console.error("❌ Failed to fetch user info from Google");
+        return res.status(400).json({ message: "Failed to get user information from Google" });
+      }
+
+      // Extract user information
+      const { email, name, picture } = userInfo;
+
+      // Check if user already exists
+      let user = await User.findOne({ email });
+
+      if (!user) {
+        console.log("✅ Creating new user from Google auth:", email);
+        // Create a new user if they don't exist
+        user = await User.create({
+          email,
+          fullName: name,
+          profilePic: picture || "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png",
+          verified: true,
+          isGoogleAuth: true
+        });
+      } else {
+        console.log("✅ Existing user found for Google auth:", email);
+        // Update existing user with Google information if needed
+        if (!user.isGoogleAuth) {
+          user.isGoogleAuth = true;
+          user.verified = true;
+          if (!user.profilePic && picture) {
+            user.profilePic = picture;
+          }
+          await user.save();
+        }
+      }
+
+      // Generate JWT token and set cookie
+      generateToken(user._id, res);
+
+      // Return user data
+      return res.status(200).json({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        profilePic: user.profilePic,
+        verified: true
+      });
+    } else if (userData && userData.email) {
+      // Legacy path for direct user data (if needed)
+      console.log("⚠️ Using legacy path with direct user data");
+
+      // Extract user information from Google data
+      const { email, name, picture } = userData;
+
+      // Check if user already exists
+      let user = await User.findOne({ email });
+
+      if (!user) {
+        console.log("✅ Creating new user from Google auth:", email);
+        // Create a new user if they don't exist
+        user = await User.create({
+          email,
+          fullName: name,
+          profilePic: picture || "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png",
+          verified: true,
+          isGoogleAuth: true
+        });
+      } else {
+        console.log("✅ Existing user found for Google auth:", email);
+        // Update existing user with Google information if needed
+        if (!user.isGoogleAuth) {
+          user.isGoogleAuth = true;
+          user.verified = true;
+          if (!user.profilePic && picture) {
+            user.profilePic = picture;
+          }
+          await user.save();
+        }
+      }
+
+      // Generate JWT token and set cookie
+      generateToken(user._id, res);
+
+      // Return user data
+      return res.status(200).json({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        profilePic: user.profilePic,
+        verified: true
+      });
+    } else {
+      return res.status(400).json({ message: "Invalid Google authentication data" });
+    }
+  } catch (error) {
+    console.error("❌ Google Auth Error:", error);
+    res.status(500).json({ message: "Google authentication failed" });
   }
 };
 

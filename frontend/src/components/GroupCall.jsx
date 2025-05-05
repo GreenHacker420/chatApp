@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users } from "lucide-react";
 import toast from "react-hot-toast";
+import WebRTCService from "../services/webrtc.service";
 
 const GroupCall = ({ groupId, groupName, onEndCall }) => {
   const { authUser, socket } = useAuthStore();
@@ -11,26 +12,75 @@ const GroupCall = ({ groupId, groupName, onEndCall }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [localStream, setLocalStream] = useState(null);
-  const [remoteStreams, setRemoteStreams] = useState({});
+  const [remoteStreams, setRemoteStreams] = useState(new Map());
   const localVideoRef = useRef(null);
-  const peerConnections = useRef({});
+  const webRTCServiceRef = useRef(null);
 
+  // Initialize WebRTC service
   useEffect(() => {
-    if (!socket || !groupId) return;
+    if (!socket) return;
+
+    webRTCServiceRef.current = new WebRTCService(socket);
+
+    // Set up callback for remote stream updates
+    webRTCServiceRef.current.onRemoteStreamUpdate = (userId, stream) => {
+      setRemoteStreams(prev => {
+        const newStreams = new Map(prev);
+        if (stream) {
+          newStreams.set(userId, stream);
+        } else {
+          newStreams.delete(userId);
+        }
+        return newStreams;
+      });
+    };
+
+    return () => {
+      if (webRTCServiceRef.current) {
+        webRTCServiceRef.current.closeAllConnections();
+      }
+    };
+  }, [socket]);
+
+  // Handle group call room
+  useEffect(() => {
+    if (!socket || !groupId || !authUser?._id) return;
 
     // Join the group call room
     socket.emit("joinGroupCall", { groupId, userId: authUser._id });
 
+    // Start the call automatically
+    startCall();
+
     // Handle participants joining
-    socket.on("participantJoined", ({ userId, stream }) => {
-      setParticipants(prev => [...prev, { userId, stream }]);
-      toast.success("New participant joined the call");
+    socket.on("participantJoined", ({ userId }) => {
+      if (userId !== authUser._id && webRTCServiceRef.current) {
+        setParticipants(prev => {
+          if (!prev.some(p => p.userId === userId)) {
+            toast.success("New participant joined the call");
+            // Initiate WebRTC connection with the new participant
+            webRTCServiceRef.current.callUser(userId);
+            return [...prev, { userId }];
+          }
+          return prev;
+        });
+      }
     });
 
     // Handle participants leaving
     socket.on("participantLeft", ({ userId }) => {
-      setParticipants(prev => prev.filter(p => p.userId !== userId));
-      toast.info("A participant left the call");
+      setParticipants(prev => {
+        const filtered = prev.filter(p => p.userId !== userId);
+        if (filtered.length !== prev.length) {
+          toast.info("A participant left the call");
+        }
+        return filtered;
+      });
+
+      // Close the connection with this participant
+      if (webRTCServiceRef.current) {
+        webRTCServiceRef.current.closeConnection(userId);
+      }
     });
 
     // Handle call ended
@@ -45,24 +95,31 @@ const GroupCall = ({ groupId, groupName, onEndCall }) => {
       socket.off("groupCallEnded");
       endCall();
     };
-  }, [socket, groupId, authUser._id]);
+  }, [socket, groupId, authUser?._id]);
 
   const startCall = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
-      });
+      if (!webRTCServiceRef.current) return;
+
+      // Initialize local stream through WebRTC service
+      const stream = await webRTCServiceRef.current.initLocalStream(true);
       setLocalStream(stream);
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
-      
+
       // Notify other participants
-      socket.emit("startGroupCall", { 
-        groupId, 
-        userId: authUser._id,
-        stream 
+      socket.emit("startGroupCall", {
+        groupId,
+        userId: authUser._id
+      });
+
+      // Connect to existing participants
+      participants.forEach(participant => {
+        if (participant.userId !== authUser._id) {
+          webRTCServiceRef.current.callUser(participant.userId);
+        }
       });
     } catch (error) {
       toast.error("Failed to access camera/microphone");
@@ -71,26 +128,24 @@ const GroupCall = ({ groupId, groupName, onEndCall }) => {
   };
 
   const endCall = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+    if (webRTCServiceRef.current) {
+      webRTCServiceRef.current.closeAllConnections();
     }
-    socket.emit("endGroupCall", { groupId });
+    socket.emit("leaveGroupCall", { groupId, userId: authUser._id });
     onEndCall();
   };
 
   const toggleMute = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMuted(!isMuted);
+    if (webRTCServiceRef.current) {
+      const newMuteState = webRTCServiceRef.current.toggleAudio();
+      setIsMuted(newMuteState);
     }
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      videoTrack.enabled = !videoTrack.enabled;
-      setIsVideoOff(!isVideoOff);
+    if (webRTCServiceRef.current) {
+      const newVideoState = webRTCServiceRef.current.toggleVideo();
+      setIsVideoOff(newVideoState);
     }
   };
 
@@ -117,16 +172,18 @@ const GroupCall = ({ groupId, groupName, onEndCall }) => {
               You
             </div>
           </div>
-          {participants.map((participant) => (
-            <div key={participant.userId} className="relative">
+          {Array.from(remoteStreams).map(([userId, stream]) => (
+            <div key={userId} className="relative">
               <video
                 autoPlay
                 playsInline
                 className="w-full rounded-lg"
-                srcObject={participant.stream}
+                ref={(element) => {
+                  if (element) element.srcObject = stream;
+                }}
               />
               <div className="absolute bottom-2 left-2 text-white bg-black bg-opacity-50 px-2 py-1 rounded">
-                {participant.userId === authUser._id ? "You" : "Participant"}
+                {participants.find(p => p.userId === userId)?.name || "Participant"}
               </div>
             </div>
           ))}
@@ -155,4 +212,4 @@ const GroupCall = ({ groupId, groupName, onEndCall }) => {
   );
 };
 
-export default GroupCall; 
+export default GroupCall;

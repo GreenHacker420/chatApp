@@ -4,53 +4,37 @@ import { useAuthStore } from "../store/useAuthStore";
 import { toast } from "react-hot-toast";
 import { ERROR_MESSAGES } from "../constants/messages";
 
+/**
+ * This component handles the redirect from Google OAuth
+ * It's no longer needed with the new direct Google login flow,
+ * but we keep it for backward compatibility
+ */
 const GoogleAuthSuccess = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { handleGoogleAuthSuccess, user } = useAuthStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
-    const handleAuth = async () => {
-      try {
-        console.log('🔹 Starting Google auth success flow');
-        
-        // Check for error from Google OAuth
-        const error = searchParams.get('error');
-        if (error) {
-          console.error('❌ Google OAuth error:', error);
-          toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
-          navigate('/login');
-          return;
-        }
-
-        console.log('🔹 Calling handleGoogleAuthSuccess');
-        const success = await handleGoogleAuthSuccess();
-        console.log('✅ Google auth success result:', success);
-
-        if (success) {
-          console.log('✅ Auth successful, redirecting to home');
-          // Force a hard redirect to home page
-          window.location.href = '/';
-        } else {
-          console.error('❌ Google auth success handler failed');
-          toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
-          navigate('/login');
-        }
-      } catch (error) {
-        console.error('❌ Google auth error:', error);
-        toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
-        navigate('/login');
-      }
-    };
-
-    // Only run the auth flow if we don't have a user yet
-    if (!user) {
-      handleAuth();
-    } else {
-      console.log('✅ User already authenticated, redirecting to home');
-      window.location.href = '/';
+    // Check for error from Google OAuth
+    const error = searchParams.get('error');
+    if (error) {
+      console.error('❌ Google OAuth error:', error);
+      toast.error(ERROR_MESSAGES.GOOGLE_AUTH);
+      navigate('/login');
+      return;
     }
-  }, [navigate, searchParams, handleGoogleAuthSuccess, user]);
+
+    // If we have a user, redirect to home
+    if (user) {
+      console.log('✅ User already authenticated, redirecting to home');
+      navigate('/');
+      return;
+    }
+
+    // Otherwise, redirect to login
+    console.log('⚠️ No user found after Google auth, redirecting to login');
+    navigate('/login');
+  }, [navigate, searchParams, user]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-base-200">

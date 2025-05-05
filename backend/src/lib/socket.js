@@ -13,8 +13,8 @@ const allowedOrigins =
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === "production" 
-      ? process.env.FRONTEND_URL 
+    origin: process.env.NODE_ENV === "production"
+      ? process.env.FRONTEND_URL
       : "http://localhost:5173",
     credentials: true,
     methods: ["GET", "POST"],
@@ -26,7 +26,7 @@ const io = new Server(server, {
 });
 
 // ✅ Store online users with their details
-const userSocketMap = new Map(); 
+const userSocketMap = new Map();
 
 // Store active group calls
 const activeGroupCalls = new Map();
@@ -40,7 +40,7 @@ io.on("connection", async (socket) => {
 
   // Get userId from query params or auth
   const userId = socket.handshake.query.userId || socket.handshake.auth.userId;
-  
+
   if (userId) {
     try {
       // Get user details from database
@@ -144,6 +144,76 @@ io.on("connection", async (socket) => {
     console.error(`⚠️ Socket error for ${userName}:`, err.message);
   });
 
+  // Handle WebRTC signaling
+  socket.on("webrtc-offer", ({ to, offer }) => {
+    console.log(`Relaying WebRTC offer from ${socket.data.userId} to ${to}`);
+    const receiverSocketId = getReceiverSocketId(to);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("webrtc-offer", {
+        from: socket.data.userId,
+        offer
+      });
+    }
+  });
+
+  socket.on("webrtc-answer", ({ to, answer }) => {
+    console.log(`Relaying WebRTC answer from ${socket.data.userId} to ${to}`);
+    const receiverSocketId = getReceiverSocketId(to);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("webrtc-answer", {
+        from: socket.data.userId,
+        answer
+      });
+    }
+  });
+
+  socket.on("webrtc-ice-candidate", ({ to, candidate }) => {
+    const receiverSocketId = getReceiverSocketId(to);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("webrtc-ice-candidate", {
+        from: socket.data.userId,
+        candidate
+      });
+    }
+  });
+
+  // Handle call initiation
+  socket.on("initiateCall", ({ callerId, callerName, receiverId, isVideo }) => {
+    console.log(`Call initiated from ${callerName} to ${receiverId}`);
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("incomingCall", {
+        callerId,
+        callerName,
+        isVideo
+      });
+    }
+  });
+
+  socket.on("acceptCall", ({ callerId, receiverId }) => {
+    console.log(`Call accepted by ${receiverId}`);
+    const callerSocketId = getReceiverSocketId(callerId);
+    if (callerSocketId) {
+      io.to(callerSocketId).emit("callAccepted", { receiverId });
+    }
+  });
+
+  socket.on("rejectCall", ({ callerId, receiverId }) => {
+    console.log(`Call rejected by ${receiverId}`);
+    const callerSocketId = getReceiverSocketId(callerId);
+    if (callerSocketId) {
+      io.to(callerSocketId).emit("callRejected", { receiverId });
+    }
+  });
+
+  socket.on("endCall", ({ userId, remoteUserId }) => {
+    console.log(`Call ended by ${userId}`);
+    const remoteSocketId = getReceiverSocketId(remoteUserId);
+    if (remoteSocketId) {
+      io.to(remoteSocketId).emit("callEnded", { userId });
+    }
+  });
+
   // Handle group call events
   socket.on("joinGroupCall", ({ groupId, userId }) => {
     socket.join(`groupCall:${groupId}`);
@@ -154,8 +224,8 @@ io.on("connection", async (socket) => {
     io.to(`groupCall:${groupId}`).emit("participantJoined", { userId });
   });
 
-  socket.on("startGroupCall", ({ groupId, userId, stream }) => {
-    io.to(`groupCall:${groupId}`).emit("participantJoined", { userId, stream });
+  socket.on("startGroupCall", ({ groupId, userId }) => {
+    io.to(`groupCall:${groupId}`).emit("participantJoined", { userId });
   });
 
   socket.on("endGroupCall", ({ groupId }) => {

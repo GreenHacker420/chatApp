@@ -52,6 +52,15 @@ const userSchema = new mongoose.Schema(
 userSchema.pre("validate", function (next) {
   if (this.isGoogleAuth) {
     this.password = undefined; // ✅ Prevents validation error for Google users
+    this.verified = true; // ✅ Google users are automatically verified
+  }
+  next();
+});
+
+// ✅ Set default profile pic if none provided
+userSchema.pre("save", function (next) {
+  if (!this.profilePic) {
+    this.profilePic = "https://res.cloudinary.com/dkd5jblv5/image/upload/v1675976806/Default_ProfilePic.png";
   }
   next();
 });

@@ -64,8 +64,9 @@ const MessageInput = () => {
 
       // ✅ Emit socket event for real-time message
       if (socket && selectedUser && response) {
+        const authUserId = useAuthStore.getState().user?._id;
         socket.emit("sendMessage", {
-          senderId: response.sender._id,
+          senderId: authUserId, // Use the authenticated user's ID as the sender
           receiverId: selectedUser._id,
           message: response
         });

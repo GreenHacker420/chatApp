@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, Plus } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Plus } from "lucide-react";
 import toast from "react-hot-toast";
+import WebRTCService from "../services/webrtc.service";
 
 const CallInterface = () => {
   const {
@@ -13,40 +14,100 @@ const CallInterface = () => {
     isMuted,
     isVideoOff,
     groupCallParticipants,
-    addGroupCallParticipant,
-    removeGroupCallParticipant,
-    handleGroupCallInvitation,
-    acceptGroupCallInvitation,
-    rejectGroupCallInvitation,
     users
   } = useChatStore();
-  
-  const { socket } = useAuthStore();
+
+  const { socket, authUser } = useAuthStore();
 
   const [showAddParticipant, setShowAddParticipant] = useState(false);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const webRTCServiceRef = useRef(null);
 
+  // Initialize WebRTC service
   useEffect(() => {
-    if (!activeCall || !socket) return;
+    if (!socket) return;
 
-    socket.on('groupCallInvitation', (invitation) => {
-      handleGroupCallInvitation(invitation);
-    });
+    webRTCServiceRef.current = new WebRTCService(socket);
 
-    socket.on('participantJoined', (participant) => {
-      addGroupCallParticipant(participant);
-    });
-
-    socket.on('participantLeft', (participantId) => {
-      removeGroupCallParticipant(participantId);
-    });
+    // Set up callback for remote stream updates
+    webRTCServiceRef.current.onRemoteStreamUpdate = (_, stream) => {
+      if (stream) {
+        setRemoteStream(stream);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = stream;
+        }
+      } else {
+        setRemoteStream(null);
+      }
+    };
 
     return () => {
-      socket.off('groupCallInvitation');
-      socket.off('participantJoined');
-      socket.off('participantLeft');
+      if (webRTCServiceRef.current) {
+        webRTCServiceRef.current.closeAllConnections();
+      }
     };
-  }, [activeCall, socket]);
+  }, [socket]);
+
+  // Handle call setup
+  useEffect(() => {
+    if (!activeCall || !socket || !authUser) return;
+
+    // Initialize media for the call
+    const setupCall = async () => {
+      try {
+        if (!webRTCServiceRef.current) return;
+
+        // Initialize local stream
+        const stream = await webRTCServiceRef.current.initLocalStream(activeCall.isVideo);
+        setLocalStream(stream);
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // If this is an outgoing call, we need to wait for the other person to accept
+        if (activeCall.isOutgoing) {
+          // Wait for call acceptance
+          socket.on('callAccepted', ({ receiverId }) => {
+            if (receiverId === authUser._id) return;
+
+            // Start WebRTC connection
+            webRTCServiceRef.current.callUser(activeCall.userId);
+          });
+        } else {
+          // For incoming calls, we need to establish the connection right away
+          webRTCServiceRef.current.callUser(activeCall.userId);
+        }
+
+        // Handle call ended
+        socket.on('callEnded', ({ userId }) => {
+          if (userId === activeCall.userId) {
+            toast.info("Call ended by the other user");
+            endCall();
+          }
+        });
+      } catch (error) {
+        console.error("Error setting up call:", error);
+        toast.error("Failed to set up call");
+        endCall();
+      }
+    };
+
+    setupCall();
+
+    return () => {
+      socket.off('callAccepted');
+      socket.off('callEnded');
+
+      if (webRTCServiceRef.current) {
+        webRTCServiceRef.current.closeAllConnections();
+      }
+    };
+  }, [activeCall, socket, authUser]);
 
   const handleAddParticipants = () => {
     setShowAddParticipant(true);
@@ -69,20 +130,53 @@ const CallInterface = () => {
   if (!activeCall) return null;
 
   return (
-    <div className="fixed bottom-0 right-0 w-80 bg-white rounded-lg shadow-lg p-4 m-4">
+    <div className="fixed bottom-0 right-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 m-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
-          <img
-            src={activeCall.caller.avatar}
-            alt={activeCall.caller.name}
-            className="w-10 h-10 rounded-full mr-2"
-          />
-          <div>
-            <h3 className="font-semibold">{activeCall.caller.name}</h3>
-            <p className="text-sm text-gray-500">
-              {activeCall.isGroupCall ? 'Group Call' : 'Calling...'}
-            </p>
-          </div>
+          {activeCall.isVideo && (
+            <div className="relative w-full mb-4">
+              {localStream && (
+                <div className="relative w-full h-32 mb-2">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                  <div className="absolute bottom-1 left-1 text-white text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
+                    You
+                  </div>
+                </div>
+              )}
+              {remoteStream && (
+                <div className="relative w-full h-32">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                  <div className="absolute bottom-1 left-1 text-white text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
+                    {activeCall.userName || "Caller"}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {!activeCall.isVideo && (
+            <>
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white mr-2">
+                <Phone size={16} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800 dark:text-white">{activeCall.userName || "Caller"}</h3>
+                <p className="text-sm text-gray-500">
+                  {activeCall.isOutgoing ? 'Outgoing call' : 'Incoming call'}
+                </p>
+              </div>
+            </>
+          )}
         </div>
         <button
           onClick={endCall}
@@ -123,21 +217,33 @@ const CallInterface = () => {
 
       <div className="flex justify-center space-x-4">
         <button
-          onClick={toggleMute}
+          onClick={() => {
+            if (webRTCServiceRef.current) {
+              const newMuteState = webRTCServiceRef.current.toggleAudio();
+              toggleMute(newMuteState);
+            }
+          }}
           className={`p-3 rounded-full ${
-            isMuted ? 'bg-red-500 text-white' : 'bg-gray-200'
+            isMuted ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700'
           }`}
         >
           {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
-        <button
-          onClick={toggleVideo}
-          className={`p-3 rounded-full ${
-            isVideoOff ? 'bg-red-500 text-white' : 'bg-gray-200'
-          }`}
-        >
-          {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
-        </button>
+        {activeCall.isVideo && (
+          <button
+            onClick={() => {
+              if (webRTCServiceRef.current) {
+                const newVideoState = webRTCServiceRef.current.toggleVideo();
+                toggleVideo(newVideoState);
+              }
+            }}
+            className={`p-3 rounded-full ${
+              isVideoOff ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700'
+            }`}
+          >
+            {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+          </button>
+        )}
       </div>
 
       {showAddParticipant && (
@@ -180,4 +286,4 @@ const CallInterface = () => {
   );
 };
 
-export default CallInterface; 
+export default CallInterface;

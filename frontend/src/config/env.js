@@ -21,6 +21,17 @@ export const config = {
     TIMEOUT: 15000,
   },
 
+  // Google Authentication
+  GOOGLE: {
+    CLIENT_ID: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+    // Log the client ID during initialization to help with debugging
+    ...((() => {
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+      console.log('Loading Google Client ID:', clientId ? 'Found' : 'Missing');
+      return {};
+    })())
+  },
+
   // Socket Configuration
   SOCKET: {
     URL: isDevelopment ? BACKEND_URLS.DEVELOPMENT : BACKEND_URLS.PRODUCTION,
@@ -66,4 +77,4 @@ export const config = {
   }
 };
 
-export default config; 
+export default config;

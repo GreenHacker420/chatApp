@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { authApi } from "../lib/axios.js";
 import toast from "react-hot-toast";
-import { io } from "socket.io-client";
 import config from "../config/env.js";
 import axios from "axios";
+import { socket, connectSocket } from "../socket.js";
 
 // Success Messages
 const SUCCESS_MESSAGES = {
@@ -89,27 +89,55 @@ export const useAuthStore = create((set, get) => ({
   checkAuth: async () => {
     try {
       set({ isLoading: true });
-      const response = await authApi.get("check");
+      console.log("🔹 Checking authentication status...");
+
+      // Make request with credentials to ensure cookies are sent
+      const response = await authApi.get("check", {
+        withCredentials: true
+      });
+
+      console.log("✅ Auth check response:", response.status);
+
       if (response.data?._id) {
-        set({ user: response.data });
-        get().connectSocket();
-        // Persist user data
-        localStorage.setItem('authState', JSON.stringify({ 
+        console.log("✅ User authenticated:", response.data.email);
+
+        // Set user in state
+        set({
           user: response.data,
-          isVerified: response.data.isVerified || false
+          isAuthenticated: true
+        });
+
+        // Connect socket
+        get().connectSocket();
+
+        // Persist user data
+        localStorage.setItem('authState', JSON.stringify({
+          user: response.data,
+          isAuthenticated: true,
+          isVerified: response.data.verified || false
         }));
+
         return true;
+      } else {
+        console.log("⚠️ No user data in response");
+        set({ user: null, isAuthenticated: false });
+        localStorage.removeItem('authState');
+        return false;
       }
-      set({ user: null });
-      localStorage.removeItem('authState');
-      return false;
     } catch (error) {
-      set({ user: null });
+      console.error("❌ Auth check error:", error);
+
+      // Clear user data on error
+      set({ user: null, isAuthenticated: false });
       localStorage.removeItem('authState');
+
+      // Retry on network error
       if (!error.response && error.code === 'ERR_NETWORK') {
+        console.log("⚠️ Network error, retrying in 1s...");
         await new Promise(resolve => setTimeout(resolve, 1000));
         return get().checkAuth();
       }
+
       return false;
     } finally {
       set({ isLoading: false });
@@ -129,16 +157,16 @@ export const useAuthStore = create((set, get) => ({
 
       const userData = response.data.user;
       console.log('✅ User data received:', userData);
-      
+
       // Update state
-      set({ 
+      set({
         user: userData,
         isVerified: userData.isVerified || false,
         error: null
       });
 
       // Persist user data
-      localStorage.setItem('authState', JSON.stringify({ 
+      localStorage.setItem('authState', JSON.stringify({
         user: userData,
         isVerified: userData.isVerified || false
       }));
@@ -146,7 +174,7 @@ export const useAuthStore = create((set, get) => ({
       console.log('🔹 Initializing socket connection');
       // Initialize socket connection
       get().connectSocket();
-      
+
       toast.success(SUCCESS_MESSAGES.LOGIN);
       console.log('✅ Google auth success complete');
       return true;
@@ -157,8 +185,8 @@ export const useAuthStore = create((set, get) => ({
         status: error.response?.status,
         message: error.message
       });
-      
-      set({ 
+
+      set({
         error: error.response?.data?.message || ERROR_MESSAGES.GOOGLE_AUTH,
         user: null,
         isVerified: false
@@ -188,20 +216,34 @@ export const useAuthStore = create((set, get) => ({
   login: async (credentials, navigate) => {
     try {
       set({ isLoading: true, error: null });
-      const response = await authApi.post("login", credentials);
-      set({ user: response.data });
-      
-      // Persist user data
-      localStorage.setItem('authState', JSON.stringify({ 
+
+      console.log("🔹 Attempting login for:", credentials.email);
+
+      // Make login request with credentials
+      const response = await authApi.post("login", credentials, {
+        withCredentials: true // Ensure cookies are sent/received
+      });
+
+      console.log("✅ Login response received:", response.status);
+
+      // Set user in state
+      set({
         user: response.data,
-        isVerified: response.data.isVerified || false
+        isAuthenticated: true
+      });
+
+      // Persist user data
+      localStorage.setItem('authState', JSON.stringify({
+        user: response.data,
+        isAuthenticated: true,
+        isVerified: response.data.verified || false
       }));
-      
+
       // Connect socket before navigation
       get().connectSocket();
-      
+
       toast.success(SUCCESS_MESSAGES.LOGIN);
-      
+
       // Force navigation to home page with a slight delay to ensure socket connection
       setTimeout(() => {
         if (navigate) {
@@ -210,9 +252,16 @@ export const useAuthStore = create((set, get) => ({
           window.location.href = config.ROUTES.APP.HOME;
         }
       }, 100);
-      
+
       return true;
     } catch (error) {
+      console.error("❌ Login error:", error);
+      console.error("Error details:", {
+        response: error.response?.data,
+        status: error.response?.status,
+        message: error.message
+      });
+
       const message = error.response?.data?.message || ERROR_MESSAGES.LOGIN;
       toast.error(message);
       set({ error: message });
@@ -244,7 +293,7 @@ export const useAuthStore = create((set, get) => ({
   updateProfile: async (formData) => {
     try {
       set({ isLoading: true });
-      
+
       const profilePic = formData.profilePic && typeof formData.profilePic !== 'string'
         ? await fileToBase64(formData.profilePic)
         : formData.profilePic;
@@ -255,19 +304,65 @@ export const useAuthStore = create((set, get) => ({
       );
 
       set({ user: response.data });
-      
+
       // Update persisted user data
       const persistedState = JSON.parse(localStorage.getItem('authState') || '{}');
       localStorage.setItem('authState', JSON.stringify({
         ...persistedState,
         user: response.data
       }));
-      
+
       toast.success(SUCCESS_MESSAGES.PROFILE_UPDATE);
       return true;
     } catch (error) {
       const message = error.response?.data?.message || ERROR_MESSAGES.PROFILE_UPDATE;
       toast.error(message);
+      return false;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  // ✅ Google Authentication
+  googleLogin: async (userData, navigate) => {
+    try {
+      set({ isLoading: true });
+
+      // Call the backend with Google user data
+      const response = await authApi.post("google-login", { userData });
+
+      // Set user in state
+      set({
+        user: response.data,
+        isAuthenticated: true,
+        error: null
+      });
+
+      // Persist auth state
+      localStorage.setItem('authState', JSON.stringify({
+        user: response.data,
+        isAuthenticated: true
+      }));
+
+      // Connect socket
+      get().connectSocket();
+
+      toast.success(SUCCESS_MESSAGES.LOGIN);
+
+      // Navigate to home page
+      setTimeout(() => {
+        if (navigate) {
+          navigate(config.ROUTES.APP.HOME);
+        } else {
+          window.location.href = config.ROUTES.APP.HOME;
+        }
+      }, 100);
+
+      return true;
+    } catch (error) {
+      const message = error.response?.data?.message || "Google authentication failed";
+      toast.error(message);
+      set({ error: message });
       return false;
     } finally {
       set({ isLoading: false });
@@ -280,14 +375,14 @@ export const useAuthStore = create((set, get) => ({
       set({ isLoading: true });
       const response = await authApi.get(`verify/${userId}/${token}`);
       set({ isVerified: true });
-      
+
       // Update persisted state
       const persistedState = JSON.parse(localStorage.getItem('authState') || '{}');
       localStorage.setItem('authState', JSON.stringify({
         ...persistedState,
         isVerified: true
       }));
-      
+
       toast.success(response.data.message);
       navigate?.(`${config.ROUTES.AUTH.LOGIN}?verified=true`);
       return true;
@@ -350,40 +445,43 @@ export const useAuthStore = create((set, get) => ({
 
   // ✅ Socket Actions
   connectSocket: () => {
-    const { user, socket } = get();
-    if (user?._id && !socket) {
+    const { user } = get();
+    if (user?._id) {
       console.log('🔹 Connecting socket for user:', user.fullName);
-      
-      const newSocket = io(config.SOCKET.URL, {
-        ...config.SOCKET.CONFIG,
-        auth: { userId: user._id },
-        query: { userId: user._id } // Add userId to query params
-      });
 
-      newSocket.on('connect', () => {
+      // Use the connectSocket function from socket.js
+      connectSocket(user._id);
+
+      // Set up event listeners
+      socket.on('connect', () => {
         console.log('✅ Socket connected successfully');
-        newSocket.emit('online', { userId: user._id });
+        socket.emit('online', { userId: user._id });
       });
 
-      newSocket.on('connect_error', (error) => {
+      socket.on('connect_error', (error) => {
         console.error('❌ Socket connection error:', error);
         toast.error(ERROR_MESSAGES.SOCKET_CONNECTION);
       });
 
-      newSocket.on('disconnect', (reason) => {
+      socket.on('disconnect', (reason) => {
         console.log('❌ Socket disconnected:', reason);
         if (reason === 'io server disconnect') {
           // Server initiated disconnect, try to reconnect
-          newSocket.connect();
+          socket.connect();
         }
       });
 
-      set({ socket: newSocket });
+      // Set up online users listener
+      socket.on('getOnlineUsers', (users) => {
+        set({ onlineUsers: users });
+      });
+
+      set({ socket });
     }
   },
 
   disconnectSocket: () => {
-    const { socket, user } = get();
+    const { user } = get();
     if (socket?.connected) {
       console.log('🔹 Disconnecting socket for user:', user?.fullName);
       user?._id && socket.emit('offline', { userId: user._id });

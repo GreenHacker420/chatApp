@@ -12,10 +12,13 @@ const ERROR_MESSAGES = {
 export const axiosInstance = axios.create({
   baseURL: '/api/auth',
   timeout: 15000,
-  withCredentials: true,
+  withCredentials: true, // Important for cookies
   headers: {
     'Content-Type': 'application/json',
-  }
+  },
+  // Ensure cookies are properly handled
+  xsrfCookieName: 'XSRF-TOKEN',
+  xsrfHeaderName: 'X-XSRF-TOKEN',
 });
 
 export const messagesApi = axios.create({
@@ -122,9 +125,10 @@ const addInterceptors = (instance, name) => {
  * Handle authentication errors
  */
 const handleAuthError = () => {
-  localStorage.removeItem("jwt");
+  // Clear local storage auth data
+  localStorage.removeItem('authState');
   toast.error(ERROR_MESSAGES.SESSION_EXPIRED);
-  
+
   // Only redirect if not already on login page
   if (!window.location.pathname.includes('/login')) {
     window.location.href = '/login';

@@ -24,7 +24,7 @@ const ChatContainer = () => {
     startGroupCall,
     endGroupCall,
   } = useChatStore();
-  
+
   const { user: authUser, socket } = useAuthStore();
   const messageEndRef = useRef(null);
   const [isTyping, setIsTyping] = useState(false);
@@ -80,7 +80,7 @@ const ChatContainer = () => {
     const handleTyping = ({ senderId }) => {
       if (senderId === selectedUser._id) setIsTyping(true);
     };
-    
+
     const handleStopTyping = ({ senderId }) => {
       if (senderId === selectedUser._id) setIsTyping(false);
     };
@@ -111,8 +111,8 @@ const ChatContainer = () => {
 
   // ✅ Handle message deletion
   const handleDeleteMessage = async (messageId, deleteForEveryone = false) => {
-    if (window.confirm(deleteForEveryone 
-      ? "Are you sure you want to delete this message for everyone?" 
+    if (window.confirm(deleteForEveryone
+      ? "Are you sure you want to delete this message for everyone?"
       : "Are you sure you want to delete this message for yourself?")) {
       await deleteMessage(messageId, deleteForEveryone);
       setSelectedMessage(null);
@@ -166,8 +166,14 @@ const ChatContainer = () => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => {
-          const isSentByMe = message.sender?._id === authUser._id || message.senderId === authUser._id;
-          const senderProfilePic = isSentByMe 
+          // Check if the message was sent by the current user
+          const isSentByMe =
+            (message.sender?._id === authUser._id) ||
+            (message.senderId === authUser._id) ||
+            (message.senderId && message.senderId.toString() === authUser._id.toString());
+
+          // Use the correct profile picture based on who sent the message
+          const senderProfilePic = isSentByMe
             ? authUser.profilePic || "/avatar.png"
             : selectedUser.profilePic || "/avatar.png";
 
@@ -198,7 +204,7 @@ const ChatContainer = () => {
                       </label>
                       <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-24">
                         <li>
-                          <button 
+                          <button
                             onClick={() => handleDeleteMessage(message._id, false)}
                             className="text-error flex items-center gap-1"
                           >
@@ -207,7 +213,7 @@ const ChatContainer = () => {
                           </button>
                         </li>
                         <li>
-                          <button 
+                          <button
                             onClick={() => handleDeleteMessage(message._id, true)}
                             className="text-error flex items-center gap-1"
                           >
@@ -219,19 +225,19 @@ const ChatContainer = () => {
                     </div>
                   </div>
                 )}
-                
+
                 {message.text}
                 {message.image && (
-                  <img 
-                    src={message.image} 
-                    alt="Message attachment" 
+                  <img
+                    src={message.image}
+                    alt="Message attachment"
                     className="max-w-xs rounded-lg mt-2"
                   />
                 )}
                 {message.video && (
-                  <video 
-                    src={message.video} 
-                    controls 
+                  <video
+                    src={message.video}
+                    controls
                     className="max-w-xs rounded-lg mt-2"
                   />
                 )}

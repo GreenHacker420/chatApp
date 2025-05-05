@@ -66,30 +66,38 @@
 
 import jwt from "jsonwebtoken";
 
+/**
+ * Generate a JWT token and set it as an HTTP-only cookie
+ * @param {string} userId - User ID to include in the token
+ * @param {object} res - Express response object (optional)
+ * @returns {string} - The generated token
+ */
 export const generateToken = (userId, res) => {
   try {
     console.log("🔹 Generating Token for User:", userId);
 
+    // Create token with user ID and token type
     const token = jwt.sign(
-      { userId, tokenType: "auth" }, 
+      { userId, tokenType: "auth" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    console.log("✅ Token Generated:", token);
-
-    // ✅ Ensure res is provided, then set the cookie
+    // Set cookie if response object is provided
     if (res) {
-      res.cookie("jwt", token, {
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+      const cookieOptions = {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         httpOnly: true,
-        sameSite: "strict",
-        secure: process.env.NODE_ENV === "production",
         path: "/",
-      });
+        sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+        secure: process.env.NODE_ENV === "production"
+      };
+
+      res.cookie("jwt", token, cookieOptions);
+      console.log("✅ Cookie set with token");
     }
 
-    return token; // Still return the token if needed
+    return token;
   } catch (error) {
     console.error("❌ Error generating token:", error.message);
     if (res) res.status(500).json({ message: "Token generation failed" });

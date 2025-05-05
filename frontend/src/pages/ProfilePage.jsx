@@ -1,11 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { Camera, Mail, User, ShieldCheck } from "lucide-react";
+import { Camera, Mail, User, ShieldCheck, Globe } from "lucide-react";
 import toast from "react-hot-toast";
 
 const ProfilePage = () => {
-  const { authUser, isUpdatingProfile, updateProfile } = useAuthStore();
+  const { user, isUpdatingProfile, updateProfile } = useAuthStore();
+  const authUser = user; // Ensure we have a consistent reference to the user
   const [selectedImg, setSelectedImg] = useState(null);
+  const [profileImage, setProfileImage] = useState("");
+
+  // Effect to handle profile image loading and error handling
+  useEffect(() => {
+    if (authUser?.profilePic) {
+      setProfileImage(authUser.profilePic);
+    }
+  }, [authUser]);
+
+  // Handle image load error (fallback to default avatar)
+  const handleImageError = () => {
+    setProfileImage("/avatar.png");
+    console.error("Failed to load profile image, using default");
+  };
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
@@ -49,31 +64,53 @@ const ProfilePage = () => {
           {/* ✅ Avatar Upload Section */}
           <div className="flex flex-col items-center gap-4">
             <div className="relative">
-              <img
-                src={selectedImg || authUser.profilePic || "/avatar.png"}
-                alt="Profile"
-                className="size-32 rounded-full object-cover border-4"
-              />
-              <label
-                htmlFor="avatar-upload"
-                className={`absolute bottom-0 right-0 bg-base-content hover:scale-105
-                  p-2 rounded-full cursor-pointer transition-all duration-200
-                  ${isUpdatingProfile ? "animate-pulse pointer-events-none" : ""}`}
-              >
-                <Camera className="w-5 h-5 text-base-200" />
-                <input
-                  type="file"
-                  id="avatar-upload"
-                  className="hidden"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  disabled={isUpdatingProfile}
+              <div className="relative">
+                <img
+                  src={selectedImg || profileImage || authUser?.profilePic || "/avatar.png"}
+                  alt="Profile"
+                  className="size-32 rounded-full object-cover border-4 border-base-300"
+                  onError={handleImageError}
                 />
-              </label>
+                {authUser?.isGoogleAuth && (
+                  <div className="absolute -top-2 -right-2 bg-white p-1 rounded-full shadow-md" title="Google Account">
+                    <Globe className="w-5 h-5 text-[#4285F4]" />
+                  </div>
+                )}
+              </div>
+
+              {!authUser?.isGoogleAuth && (
+                <label
+                  htmlFor="avatar-upload"
+                  className={`absolute bottom-0 right-0 bg-base-content hover:scale-105
+                    p-2 rounded-full cursor-pointer transition-all duration-200
+                    ${isUpdatingProfile ? "animate-pulse pointer-events-none" : ""}`}
+                >
+                  <Camera className="w-5 h-5 text-base-200" />
+                  <input
+                    type="file"
+                    id="avatar-upload"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    disabled={isUpdatingProfile}
+                  />
+                </label>
+              )}
             </div>
-            <p className="text-sm text-zinc-400">
-              {isUpdatingProfile ? "Uploading..." : "Click the camera icon to update your photo"}
-            </p>
+            <div className="text-center">
+              <p className="text-sm text-zinc-400">
+                {isUpdatingProfile ? "Uploading..." :
+                  authUser?.isGoogleAuth ?
+                  "Profile picture from Google account" :
+                  "Click the camera icon to update your photo"}
+              </p>
+              {authUser?.isGoogleAuth && (
+                <div className="mt-2 flex items-center justify-center gap-1 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                  <Globe className="w-3 h-3" />
+                  <span>Google Account</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ✅ User Information */}
@@ -109,7 +146,23 @@ const ProfilePage = () => {
               <div className="flex items-center justify-between py-2 border-b border-zinc-700">
                 <span>Member Since</span>
                 <span>
-                  {authUser.createdAt ? new Date(authUser.createdAt).toLocaleDateString() : "N/A"}
+                  {authUser?.createdAt ? new Date(authUser.createdAt).toLocaleDateString() : "N/A"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-zinc-700">
+                <span>Account Type</span>
+                <span className="flex items-center gap-1">
+                  {authUser?.isGoogleAuth ? (
+                    <>
+                      <Globe className="w-4 h-4 text-[#4285F4]" />
+                      <span className="text-[#4285F4]">Google Account</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4 text-primary" />
+                      <span>Email/Password</span>
+                    </>
+                  )}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2">

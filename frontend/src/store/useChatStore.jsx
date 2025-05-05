@@ -43,7 +43,7 @@ export const useChatStore = create((set, get) => ({
     try {
       set({ isUsersLoading: true, error: null });
       const response = await usersApi.get("/");
-      
+
       // Sort users: online first, then by last message time
       const sortedUsers = response.data.sort((a, b) => {
         if (a.isOnline !== b.isOnline) {
@@ -53,7 +53,7 @@ export const useChatStore = create((set, get) => ({
         const bLastMessage = b.lastMessage?.createdAt || 0;
         return new Date(bLastMessage) - new Date(aLastMessage);
       });
-      
+
       set({ users: sortedUsers, isUsersLoading: false });
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -68,7 +68,7 @@ export const useChatStore = create((set, get) => ({
 
     try {
       const res = await messagesApi.get(`/${userId}?page=${page}`);
-      
+
       set((state) => {
         if (page === 1) {
           return {
@@ -154,11 +154,13 @@ export const useChatStore = create((set, get) => ({
     if (!selectedUser) return;
 
     let tempMessage = null;
+    const authUser = useAuthStore.getState().user;
 
     try {
       // Create message data - handle both string and object content
       const messageData = {
-        text: typeof content === 'string' ? content : content.text || content.content || '',
+        // Map 'text' to 'content' for backend compatibility
+        content: typeof content === 'string' ? content : content.text || content.content || '',
         receiverId: content.receiverId || selectedUser._id
       };
 
@@ -169,12 +171,14 @@ export const useChatStore = create((set, get) => ({
         messageData.video = content.video;
       }
 
-      // Optimistic update
+      // Optimistic update with clear sender information
       tempMessage = {
         _id: Date.now().toString(),
-        text: messageData.text,
-        sender: useAuthStore.getState().user,
-        receiver: messageData.receiverId,
+        // Store as text for frontend consistency
+        text: messageData.content,
+        sender: authUser,
+        senderId: authUser._id, // Explicitly set senderId
+        receiverId: messageData.receiverId, // Explicitly set receiverId
         createdAt: new Date().toISOString(),
         isOptimistic: true
       };
@@ -191,18 +195,23 @@ export const useChatStore = create((set, get) => ({
       console.log('✅ Message sent successfully:', response.data);
 
       const data = response.data;
-      
+
+      // Ensure the response data has a text field for frontend consistency
+      if (data.content && !data.text) {
+        data.text = data.content;
+      }
+
       // Replace optimistic message with real one
       set((state) => ({
-        messages: state.messages.map(msg => 
+        messages: state.messages.map(msg =>
           msg._id === tempMessage._id ? data : msg
         )
       }));
 
       // Update last message in users list
       set((state) => ({
-        users: state.users.map(user => 
-          user._id === selectedUser._id 
+        users: state.users.map(user =>
+          user._id === selectedUser._id
             ? { ...user, lastMessage: data }
             : user
         )
@@ -231,7 +240,7 @@ export const useChatStore = create((set, get) => ({
       await messagesApi.delete(`/${messageId}`, {
         data: { deleteForEveryone }
       });
-      
+
       set((state) => ({
         messages: state.messages.filter((msg) => msg._id !== messageId),
       }));
@@ -247,29 +256,49 @@ export const useChatStore = create((set, get) => ({
   },
 
   subscribeToMessages: () => {
-    socket.on("newMessage", (message) => {
+    socket.on("newMessage", (data) => {
       const { selectedUser } = get();
-      
-      // Update messages if chat is open
+      const authUserId = useAuthStore.getState().user?._id;
+      const message = data.message || data;
+
+      console.log("Received message via socket:", message);
+
+      // Update messages if chat is open with the correct user
       if (selectedUser && (
-        message.sender._id === selectedUser._id || 
-        message.receiver === selectedUser._id
+        // If we're chatting with the sender of this message
+        (message.sender?._id === selectedUser._id || message.senderId === selectedUser._id) ||
+        // Or if we're chatting with the receiver and we sent this message
+        (message.receiverId === selectedUser._id &&
+         (message.sender?._id === authUserId || message.senderId === authUserId))
       )) {
         set((state) => ({
           messages: [...state.messages, message]
         }));
+
+        // Mark as read if we received the message
+        if (message.sender?._id === selectedUser._id || message.senderId === selectedUser._id) {
+          get().markMessagesAsRead(selectedUser._id);
+        }
       } else {
         // Add notification if chat is not open
-        get().addNotification(message, message.sender._id);
+        const senderId = message.sender?._id || message.senderId;
+        if (senderId && senderId !== authUserId) {
+          get().addNotification(message, senderId);
+        }
       }
 
       // Update last message in users list
       set((state) => ({
-        users: state.users.map(user => 
-          user._id === message.sender._id 
-            ? { ...user, lastMessage: message }
-            : user
-        )
+        users: state.users.map(user => {
+          const senderId = message.sender?._id || message.senderId;
+          const receiverId = message.receiverId;
+
+          // Update last message for both sender and receiver
+          if (user._id === senderId || user._id === receiverId) {
+            return { ...user, lastMessage: message };
+          }
+          return user;
+        })
       }));
     });
 
@@ -288,7 +317,7 @@ export const useChatStore = create((set, get) => ({
 
   // Start group call
   startGroupCall: (groupId, groupName) => {
-    set({ 
+    set({
       isGroupCallActive: true,
       activeGroupCall: { groupId, groupName }
     });
@@ -296,7 +325,7 @@ export const useChatStore = create((set, get) => ({
 
   // End group call
   endGroupCall: () => {
-    set({ 
+    set({
       isGroupCallActive: false,
       activeGroupCall: null
     });
@@ -307,7 +336,7 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     const authUser = useAuthStore.getState().authUser;
     const { activeCall } = get();
-    
+
     if (activeCall) {
       toast.error("You're already in a call");
       return;
@@ -319,20 +348,19 @@ export const useChatStore = create((set, get) => ({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: isVideo,
-        audio: true
-      });
+      // Find user details
+      const user = get().users.find(u => u._id === userId);
+      const userName = user ? user.fullName : "User";
 
       set({
         isCallActive: true,
         activeCall: {
           userId,
+          userName,
           isVideo,
-          stream,
           isOutgoing: true,
           isReceiverOnline: isUserOnline,
-          startTime: null,
+          startTime: Date.now(),
           connectedAt: null
         }
       });
@@ -362,7 +390,7 @@ export const useChatStore = create((set, get) => ({
   handleIncomingCall: (callData) => {
     const { activeCall, isCallActive } = get();
     const socket = useAuthStore.getState().socket;
-    
+
     // Prevent handling new calls if already in a call
     if (activeCall || isCallActive) {
       if (socket) {
@@ -390,7 +418,7 @@ export const useChatStore = create((set, get) => ({
   acceptCall: async () => {
     const { incomingCallData, activeCall } = get();
     const socket = useAuthStore.getState().socket;
-    
+
     if (!incomingCallData || !socket || activeCall) {
       if (!socket) {
         console.warn("⚠️ Socket not available for accepting call");
@@ -400,11 +428,6 @@ export const useChatStore = create((set, get) => ({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: incomingCallData.isVideo,
-        audio: true
-      });
-
       const now = Date.now();
 
       // Set call state before emitting to prevent flickering
@@ -412,8 +435,8 @@ export const useChatStore = create((set, get) => ({
         isCallActive: true,
         activeCall: {
           userId: incomingCallData.callerId,
+          userName: incomingCallData.callerName,
           isVideo: incomingCallData.isVideo,
-          stream,
           isOutgoing: false,
           startTime: now,
           connectedAt: now // Set connected time when call is accepted
@@ -426,9 +449,11 @@ export const useChatStore = create((set, get) => ({
         callerId: incomingCallData.callerId,
         receiverId: useAuthStore.getState().authUser._id
       });
+
+      toast.success(`Connected to ${incomingCallData.callerName}`);
     } catch (error) {
       console.error("Error accepting call:", error);
-      toast.error("Failed to access camera/microphone");
+      toast.error("Failed to accept call");
       set({
         isIncomingCall: false,
         incomingCallData: null
@@ -439,11 +464,12 @@ export const useChatStore = create((set, get) => ({
   // ✅ End call with debounce
   endCall: (() => {
     let endCallTimeout;
-    
+
     return () => {
       const { activeCall } = get();
       const socket = useAuthStore.getState().socket;
-      
+      const authUser = useAuthStore.getState().authUser;
+
       if (!activeCall) return;
 
       // Clear any pending end call timeout
@@ -451,15 +477,11 @@ export const useChatStore = create((set, get) => ({
         clearTimeout(endCallTimeout);
       }
 
-      // Stop all media tracks
-      if (activeCall.stream) {
-        activeCall.stream.getTracks().forEach(track => track.stop());
-      }
-
       // Emit end call event if socket is available
-      if (socket) {
+      if (socket && authUser) {
         socket.emit("endCall", {
-          userId: activeCall.userId
+          userId: authUser._id,
+          remoteUserId: activeCall.userId
         });
       } else {
         console.warn("⚠️ Socket not available for ending call");
@@ -472,6 +494,8 @@ export const useChatStore = create((set, get) => ({
           activeCall: null
         });
       }, 100);
+
+      toast.info("Call ended");
     };
   })(),
 
@@ -479,9 +503,9 @@ export const useChatStore = create((set, get) => ({
   rejectCall: () => {
     const { incomingCallData } = get();
     const socket = useAuthStore.getState().socket;
-    
+
     if (!incomingCallData) return;
-    
+
     // Emit reject call event if socket is available
     if (socket) {
       socket.emit("rejectCall", {
@@ -492,7 +516,7 @@ export const useChatStore = create((set, get) => ({
     } else {
       console.warn("⚠️ Socket not available for rejecting call");
     }
-    
+
     // Clear incoming call state
     set({
       isIncomingCall: false,
