@@ -78,14 +78,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Add a root path handler for Railway health checks
+// Add a root path handler that redirects to the frontend login page
+// Railway will use /health for health checks
 app.get('/', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    message: 'GutarGu API is running',
-    environment: process.env.NODE_ENV,
-    timestamp: new Date().toISOString()
-  });
+  // For API requests, return a 200 status with minimal info
+  if (req.headers.accept && req.headers.accept.includes('application/json')) {
+    return res.status(200).json({ status: 'ok' });
+  }
+
+  // For browser requests, redirect to the frontend login page
+  const loginUrl = process.env.NODE_ENV === 'production'
+    ? `${process.env.FRONTEND_URL || 'https://gutargu.greenhacker.tech'}/login`
+    : 'http://localhost:5173/login';
+
+  res.redirect(loginUrl);
 });
 
 // ✅ API Routes
@@ -120,6 +126,12 @@ if (process.env.NODE_ENV === "production") {
 // Add error handling middleware
 app.use((err, req, res, next) => {
   console.error('❌ Express error:', err);
+
+  // If headers already sent, delegate to the default Express error handler
+  if (res.headersSent) {
+    return next(err);
+  }
+
   res.status(500).json({
     status: 'error',
     message: process.env.NODE_ENV === 'production'
