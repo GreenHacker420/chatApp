@@ -2,8 +2,32 @@ import { io } from "socket.io-client";
 import { config } from "./config/env";
 import toast from "react-hot-toast";
 
+// Determine the socket URL based on environment
+const getSocketUrl = () => {
+  const isDevelopment = import.meta.env.MODE === 'development';
+
+  // In development, use the config URL
+  if (isDevelopment) {
+    return config.SOCKET.URL;
+  }
+
+  // In production, always use the config.SOCKET.URL
+  // This ensures we're using the correct production URL
+  const socketUrl = config.SOCKET.URL;
+
+  // Add debugging information
+  console.log('🔹 Socket Environment:', import.meta.env.MODE);
+  console.log('🔹 Config SOCKET.URL:', config.SOCKET.URL);
+  console.log('🔹 BACKEND_URLS.PRODUCTION:', config.PROD.BACKEND_URL);
+
+  return socketUrl;
+};
+
+const SOCKET_URL = getSocketUrl();
+console.log('🔹 Final Socket URL:', SOCKET_URL);
+
 // Create a socket instance with configuration from env.js
-export const socket = io(config.SOCKET.URL, {
+export const socket = io(SOCKET_URL, {
   ...config.SOCKET.CONFIG,
   autoConnect: false, // Don't connect automatically, let auth store handle it
   reconnection: true,

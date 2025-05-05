@@ -3,7 +3,7 @@ const isDevelopment = import.meta.env.MODE === 'development';
 // Backend URLs
 const BACKEND_URLS = {
   DEVELOPMENT: `http://localhost:${import.meta.env.VITE_BACKEND_PORT || 5001}`,
-  PRODUCTION: 'https://gutargu.greenhacker.tech', // Separate backend domain
+  PRODUCTION: 'https://gutargu.greenhacker.tech', // Production domain
 };
 
 // Frontend URLs
@@ -20,6 +20,15 @@ export const config = {
     MESSAGES_PATH: '/api/messages',
     TIMEOUT: 15000,
   },
+
+  // Log configuration for debugging
+  ...((() => {
+    console.log('🔹 Config initialization:');
+    console.log('  - isDevelopment:', isDevelopment);
+    console.log('  - BACKEND_URLS.DEVELOPMENT:', BACKEND_URLS.DEVELOPMENT);
+    console.log('  - BACKEND_URLS.PRODUCTION:', BACKEND_URLS.PRODUCTION);
+    return {};
+  })()),
 
   // Google Authentication
   GOOGLE: {

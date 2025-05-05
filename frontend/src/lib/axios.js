@@ -1,5 +1,6 @@
 import axios from "axios";
 import toast from "react-hot-toast";
+import { config } from "../config/env";
 
 // Error Messages
 const ERROR_MESSAGES = {
@@ -8,9 +9,33 @@ const ERROR_MESSAGES = {
   SESSION_EXPIRED: "Your session has expired. Please login again.",
 };
 
+// Determine the base URL based on environment
+const getBaseUrl = () => {
+  const isDevelopment = import.meta.env.MODE === 'development';
+
+  // In development, use relative paths to work with Vite's proxy
+  if (isDevelopment) {
+    return '';
+  }
+
+  // In production, always use the config.API.BASE_URL
+  // This ensures we're using the correct production URL
+  const baseUrl = config.API.BASE_URL;
+
+  // Add debugging information
+  console.log('🔹 Environment:', import.meta.env.MODE);
+  console.log('🔹 Config API BASE_URL:', config.API.BASE_URL);
+  console.log('🔹 BACKEND_URLS.PRODUCTION:', config.PROD.BACKEND_URL);
+
+  return baseUrl;
+};
+
+const API_BASE_URL = getBaseUrl();
+console.log('🔹 Final API Base URL:', API_BASE_URL);
+
 // Create axios instances for different API endpoints
 export const axiosInstance = axios.create({
-  baseURL: '/api/auth',
+  baseURL: isDevelopment() ? '/api/auth' : `${API_BASE_URL}/api/auth`,
   timeout: 15000,
   withCredentials: true, // Important for cookies
   headers: {
@@ -22,7 +47,7 @@ export const axiosInstance = axios.create({
 });
 
 export const messagesApi = axios.create({
-  baseURL: '/api/messages',
+  baseURL: isDevelopment() ? '/api/messages' : `${API_BASE_URL}/api/messages`,
   timeout: 15000,
   withCredentials: true,
   headers: {
@@ -31,7 +56,7 @@ export const messagesApi = axios.create({
 });
 
 export const usersApi = axios.create({
-  baseURL: '/api/users',
+  baseURL: isDevelopment() ? '/api/users' : `${API_BASE_URL}/api/users`,
   timeout: 15000,
   withCredentials: true,
   headers: {
@@ -39,29 +64,10 @@ export const usersApi = axios.create({
   }
 });
 
-/**
- * Normalize URL by removing trailing/leading slashes
- * @param {string} baseURL - Base URL
- * @param {string} url - Request URL
- * @returns {string} - Normalized URL
- */
-const normalizeUrl = (baseURL, url) => {
-  const base = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
-  const path = url.startsWith('/') ? url.slice(1) : url;
-  return `${base}/${path}`;
-};
-
-/**
- * Log request/response details
- * @param {string} type - Log type ('request' or 'response')
- * @param {Object} details - Details to log
- */
-const logApiCall = (type, details) => {
-  if (process.env.NODE_ENV === 'development') {
-    const emoji = type === 'request' ? '🔹' : '✅';
-    console.log(`${emoji} ${type.charAt(0).toUpperCase() + type.slice(1)}:`, details);
-  }
-};
+// Helper function to check if we're in development mode
+function isDevelopment() {
+  return import.meta.env.MODE === 'development';
+}
 
 /**
  * Add interceptors to an axios instance
