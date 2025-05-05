@@ -79,13 +79,20 @@ app.use((req, res, next) => {
 
 // Add a root path handler that returns 200 for health checks and redirects browsers
 app.get('/', (req, res) => {
+  // For API requests from Railway health checks, return a 200 status
+  if (req.headers['user-agent']?.includes('Railway') ||
+      (req.headers.accept && req.headers.accept.includes('application/json'))) {
+    return res.status(200).json({ status: 'ok' });
+  }
 
   // For browser requests, redirect to the frontend login page
-  const loginUrl = process.env.NODE_ENV === 'production'
-    ? `${process.env.FRONTEND_URL || 'https://gutargu.greenhacker.tech'}/login`
-    : 'http://localhost:5173/login';
+  // Use the correct frontend URL based on environment
+  const frontendUrl = process.env.NODE_ENV === 'production'
+    ? (process.env.FRONTEND_URL || 'https://gutargu.greenhacker.tech')
+    : 'http://localhost:5173';
 
-  res.redirect(loginUrl);
+  console.log(`🔹 Redirecting to: ${frontendUrl}/login`);
+  res.redirect(`${frontendUrl}/login`);
 });
 
 // ✅ API Routes

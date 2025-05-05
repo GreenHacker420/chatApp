@@ -6,8 +6,14 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 // Frontend URLs
 const FRONTEND_URLS = {
   DEVELOPMENT: 'http://localhost:5173',
-  PRODUCTION: 'https://gutargu.greenhacker.tech',
+  PRODUCTION: process.env.FRONTEND_URL || 'https://gutargu.greenhacker.tech',
 };
+
+// Log the frontend URL for debugging
+console.log('🔹 Backend config:');
+console.log('  - NODE_ENV:', process.env.NODE_ENV);
+console.log('  - FRONTEND_URL from env:', process.env.FRONTEND_URL);
+console.log('  - FRONTEND_URL used:', FRONTEND_URLS.PRODUCTION);
 
 // Port Configuration
 const PORTS = {
@@ -69,10 +75,10 @@ export const config = {
     CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CALLBACK_URL: isDevelopment
       ? `http://localhost:${PORTS.BACKEND}/api/auth/google/callback`
-      : `https://gutargu.greenhacker.tech/api/auth/google/callback`,
+      : `${FRONTEND_URLS.PRODUCTION}/api/auth/google/callback`,
     AUTH_URL: isDevelopment
       ? `http://localhost:${PORTS.BACKEND}/api/auth/google`
-      : `https://gutargu.greenhacker.tech/api/auth/google`,
+      : `${FRONTEND_URLS.PRODUCTION}/api/auth/google`,
   },
 
   // Email Configuration

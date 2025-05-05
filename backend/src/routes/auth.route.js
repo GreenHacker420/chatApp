@@ -84,6 +84,7 @@ router.get("/google/callback",
       ? "http://localhost:5173"
       : config.CLIENT.URL;
 
+    console.log(`🔹 Auth success, redirecting to: ${successRedirect}`);
     res.redirect(successRedirect);
   }
 );

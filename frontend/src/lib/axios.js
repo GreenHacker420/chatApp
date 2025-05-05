@@ -151,7 +151,13 @@ const handleAuthError = () => {
 
     // Only redirect if not already on login page
     if (!window.location.pathname.includes('/login')) {
-      window.location.href = '/login';
+      // Use the correct URL based on environment
+      const loginUrl = isDevelopment()
+        ? '/login'
+        : `${window.location.origin}/login`;
+
+      console.log('🔹 Redirecting to login:', loginUrl);
+      window.location.href = loginUrl;
     }
   } else if (persistedState) {
     // On refresh/navigation, keep the persisted state
