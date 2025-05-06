@@ -1,6 +1,6 @@
-# ChatApp
+# GutarGU Chat
 
-A modern, real-time chat application built with React, Node.js, and Socket.IO. This application supports both one-on-one and group chat functionality with features like message deletion, password reset, and email verification.
+A modern, real-time chat application built with React, Node.js, and Socket.IO. This application supports both one-on-one and group chat functionality with features like audio/video calls, offline messaging, LAN communication, and cross-platform support.
 
 ## Features
 
@@ -20,6 +20,26 @@ A modern, real-time chat application built with React, Node.js, and Socket.IO. T
   - Delete for everyone (in group chats)
 - Online/offline status indicators
 - Message read receipts
+- Offline message queue with automatic sending when back online
+- LAN-based messaging without internet connection
+
+### Call Features
+- Audio and video calls using WebRTC
+- Group calls with multiple participants
+- Screen sharing
+- LAN-optimized calls for better quality on local networks
+- Call notifications and history
+
+### File Sharing
+- Image and video sharing in chats
+- File sharing over LAN for faster transfers
+- Preview of shared media
+
+### Cross-Platform Support
+- Web application
+- Desktop application (Electron)
+- Mobile application (Capacitor)
+- Offline functionality on all platforms
 
 ### User Experience
 - Modern, responsive UI with dark/light theme support
@@ -27,6 +47,8 @@ A modern, real-time chat application built with React, Node.js, and Socket.IO. T
 - Real-time typing indicators
 - Message search functionality
 - Mobile-responsive design
+- Desktop notifications
+- Push notifications on mobile
 
 ## Tech Stack
 
@@ -38,6 +60,7 @@ A modern, real-time chat application built with React, Node.js, and Socket.IO. T
 - Axios
 - React Router
 - Zustand (State Management)
+- WebRTC for audio/video calls
 
 ### Backend
 - Node.js
@@ -47,6 +70,18 @@ A modern, real-time chat application built with React, Node.js, and Socket.IO. T
 - JWT Authentication
 - Cloudinary
 - Nodemailer
+
+### Desktop Application
+- Electron
+- IPC for native system integration
+- System tray integration
+- Native notifications
+
+### Mobile Application
+- Capacitor
+- Push notifications
+- Camera and file system access
+- Native device APIs
 
 ## Prerequisites
 
@@ -86,30 +121,47 @@ git clone https://github.com/yourusername/chatApp.git
 cd chatApp
 ```
 
-2. Install backend dependencies:
+2. Install all dependencies:
 ```bash
-cd backend
 npm install
 ```
+This will install dependencies for the backend, frontend, and Electron app.
 
-3. Install frontend dependencies:
+3. Set up environment variables in both backend and frontend directories.
+
+4. Start the development servers:
+
+**Web Application:**
 ```bash
-cd ../frontend
-npm install
-```
-
-4. Set up environment variables in both backend and frontend directories.
-
-5. Start the backend server:
-```bash
-cd backend
-npm start
-```
-
-6. Start the frontend development server:
-```bash
-cd frontend
+# Start both backend and frontend
 npm run dev
+```
+
+**Desktop Application:**
+```bash
+# Start Electron app
+npm run electron:dev
+```
+
+**Build Desktop Application:**
+```bash
+# Build Electron app for distribution
+npm run electron:build
+```
+
+**Mobile Application:**
+```bash
+# Add Android platform
+npx cap add android
+npx cap sync
+
+# Add iOS platform
+npx cap add ios
+npx cap sync
+
+# Open in native IDEs
+npx cap open android
+npx cap open ios
 ```
 
 ## Project Structure
@@ -159,9 +211,13 @@ npm run dev
 │   │   ├── App.jsx
 │   │   ├── components
 │   │   │   ├── AuthImagePattern.jsx
+│   │   │   ├── CallInterface.jsx
 │   │   │   ├── ChatContainer.jsx
 │   │   │   ├── ChatHeader.jsx
+│   │   │   ├── GroupCall.jsx
+│   │   │   ├── LanUsers.jsx
 │   │   │   ├── MessageInput.jsx
+│   │   │   ├── MessageStatus.jsx
 │   │   │   ├── Navbar.jsx
 │   │   │   ├── NoChatSelected.jsx
 │   │   │   ├── Sidebar.jsx
@@ -182,12 +238,28 @@ npm run dev
 │   │   │   ├── ProfilePage.jsx
 │   │   │   ├── SettingsPage.jsx
 │   │   │   └── SignUpPage.jsx
+│   │   ├── services
+│   │   │   ├── electron.service.js
+│   │   │   ├── offline-queue.service.js
+│   │   │   ├── push-notification.service.js
+│   │   │   └── webrtc.service.js
 │   │   └── store
 │   │       ├── useAuthStore.js
 │   │       ├── useChatStore.js
 │   │       └── useThemeStore.js
 │   ├── tailwind.config.js
 │   └── vite.config.js
+├── electron
+│   ├── README.md
+│   ├── icons
+│   │   ├── README.md
+│   │   ├── icon.svg
+│   │   ├── png
+│   │   └── tray-icon.svg
+│   ├── main.js
+│   ├── package.json
+│   └── preload.js
+├── capacitor.config.json
 ├── package-lock.json
 └── package.json
 ```

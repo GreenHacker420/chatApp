@@ -16,10 +16,17 @@ import CallInterface from "./components/CallInterface";
 import IncomingCallNotification from "./components/IncomingCallNotification";
 import { useEffect } from "react";
 import { connectSocket } from "./socket.js";
+import { socket } from "./socket";
 
 const App = () => {
-  const { user, checkAuth, isLoading } = useAuthStore();
-  const { isCallActive, isIncomingCall } = useChatStore();
+  const { user, checkAuth, isLoading, socket: authSocket } = useAuthStore();
+  const {
+    isCallActive,
+    isIncomingCall,
+    subscribeToMessages,
+    subscribeToUserStatus,
+    subscribeToCallEvents
+  } = useChatStore();
 
   // Check authentication status on app load
   useEffect(() => {
@@ -58,6 +65,25 @@ const App = () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [checkAuth]);
+
+  useEffect(() => {
+    if (user && authSocket) {
+      // Subscribe to messages
+      const unsubscribeMessages = subscribeToMessages();
+
+      // Subscribe to user status changes
+      const unsubscribeStatus = subscribeToUserStatus();
+
+      // Subscribe to call events
+      const unsubscribeCalls = subscribeToCallEvents();
+
+      return () => {
+        unsubscribeMessages();
+        unsubscribeStatus();
+        unsubscribeCalls();
+      };
+    }
+  }, [user, authSocket, subscribeToMessages, subscribeToUserStatus, subscribeToCallEvents]);
 
   // Show loading spinner while checking auth status
   if (isLoading) {

@@ -4,6 +4,8 @@ import { axiosInstance, messagesApi, usersApi } from "../lib/axios";
 import { useAuthStore } from "./useAuthStore";
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from "../constants/messages";
 import { socket } from "../socket";
+import WebRTCService from "../services/webrtc.service";
+import offlineQueueService from "../services/offline-queue.service";
 
 export const useChatStore = create((set, get) => ({
   // Message and user data
@@ -29,16 +31,54 @@ export const useChatStore = create((set, get) => ({
   activeGroupCall: null,
   groupCallParticipants: [],
   groupCallInvitations: [],
+  pendingGroupCallInvites: [],
 
   // Call state
-  isCallActive: false,
   activeCall: null,
-  isIncomingCall: false,
   incomingCallData: null,
+  isIncomingCall: false,
   isMuted: false,
   isVideoOff: false,
+  callTimeout: null,
 
   error: null,
+
+  // Add user online status tracking
+  onlineUsers: new Set(),
+
+  // Update user online status
+  updateUserStatus: (userId, isOnline) => {
+    set((state) => {
+      const onlineUsers = new Set(state.onlineUsers);
+      if (isOnline) {
+        onlineUsers.add(userId);
+      } else {
+        onlineUsers.delete(userId);
+      }
+      return { onlineUsers };
+    });
+  },
+
+  // Check if user is online
+  isUserOnline: (userId) => {
+    return get().onlineUsers.has(userId);
+  },
+
+  // Subscribe to user status changes
+  subscribeToUserStatus: () => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) return () => {};
+
+    const handleStatusChange = ({ userId, isOnline }) => {
+      get().updateUserStatus(userId, isOnline);
+    };
+
+    socket.on("userStatusChange", handleStatusChange);
+
+    return () => {
+      socket.off("userStatusChange", handleStatusChange);
+    };
+  },
 
   setSelectedUser: (user) => {
     set({ selectedUser: user });
@@ -329,6 +369,7 @@ export const useChatStore = create((set, get) => ({
     let tempMessage = null;
     const authUser = useAuthStore.getState().user;
     const socket = useAuthStore.getState().socket;
+    const isOnline = navigator.onLine && socket && socket.connected;
 
     try {
       // Create message data - handle both string and object content
@@ -359,14 +400,72 @@ export const useChatStore = create((set, get) => ({
         video: messageData.video || null,
         createdAt: new Date().toISOString(),
         isOptimistic: true,
-        isRead: false
+        isRead: false,
+        status: isOnline ? 'sending' : 'queued'
       };
 
       set((state) => ({
         messages: [...state.messages, tempMessage]
       }));
 
-      // Send message using messagesApi
+      // Check if we're offline or on LAN-only mode
+      if (!isOnline) {
+        console.log("Device is offline, queueing message");
+
+        // Add to offline queue
+        const queuedMessage = offlineQueueService.addToQueue(
+          messageData,
+          async (msg) => {
+            // This function will be called when we're back online
+            const response = await messagesApi.post('', msg);
+            return response.data;
+          }
+        );
+
+        // Update the message with queued status
+        set((state) => ({
+          messages: state.messages.map(msg =>
+            msg._id === tempMessage._id ? { ...msg, status: 'queued', _id: queuedMessage.id } : msg
+          )
+        }));
+
+        // Update last message in users list
+        set((state) => ({
+          users: state.users.map(user =>
+            user._id === selectedUser._id
+              ? { ...user, lastMessage: { ...tempMessage, status: 'queued' } }
+              : user
+          )
+        }));
+
+        // Check if this is a LAN message
+        const isLanUser = selectedUser.isLanUser || false;
+
+        if (isLanUser && window.electron) {
+          // Try to send directly over LAN using Electron
+          try {
+            // This would be implemented in the Electron preload script
+            window.electron.sendLanMessage({
+              message: messageData,
+              receiverId: selectedUser._id,
+              senderId: authUser._id
+            });
+
+            // Update status to "sent over LAN"
+            set((state) => ({
+              messages: state.messages.map(msg =>
+                msg._id === tempMessage._id ? { ...msg, status: 'sent-lan' } : msg
+              )
+            }));
+          } catch (lanError) {
+            console.error("Failed to send message over LAN:", lanError);
+          }
+        }
+
+        return tempMessage;
+      }
+
+      // Online mode - send message using messagesApi
       const response = await messagesApi.post('', messageData);
       const data = response.data;
 
@@ -390,6 +489,9 @@ export const useChatStore = create((set, get) => ({
       if (!data.senderId) {
         data.senderId = authUser._id;
       }
+
+      // Add status field
+      data.status = 'sent';
 
       // Replace optimistic message with real one
       set((state) => ({
@@ -419,12 +521,26 @@ export const useChatStore = create((set, get) => ({
       return data;
     } catch (error) {
       console.error("Failed to send message:", error);
-      // Remove optimistic message on error
+
+      // If we're offline, keep the message with queued status
+      if (!navigator.onLine) {
+        set((state) => ({
+          messages: state.messages.map(msg =>
+            msg._id === tempMessage._id ? { ...msg, status: 'queued' } : msg
+          )
+        }));
+
+        toast.error("You're offline. Message will be sent when you're back online.");
+        return tempMessage;
+      }
+
+      // Remove optimistic message on error if we're online
       if (tempMessage) {
         set((state) => ({
           messages: state.messages.filter(msg => msg._id !== tempMessage._id)
         }));
       }
+
       toast.error(ERROR_MESSAGES.SEND_MESSAGE);
       throw error;
     }
@@ -637,6 +753,163 @@ export const useChatStore = create((set, get) => ({
     };
   },
 
+  // Subscribe to call events
+  subscribeToCallEvents: () => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket) {
+      console.warn("Socket not available for call subscription");
+      return () => {};
+    }
+
+    // Handle incoming call
+    const handleIncomingCall = (callData) => {
+      console.log("Received incoming call:", callData);
+      get().handleIncomingCall(callData);
+    };
+
+    // Handle call accepted
+    const handleCallAccepted = (data) => {
+      console.log("Call accepted:", data);
+      const { activeCall, callTimeout } = get();
+
+      // Clear timeout if exists
+      if (callTimeout) {
+        clearTimeout(callTimeout);
+        set({ callTimeout: null });
+      }
+
+      // Update call state if this is our outgoing call
+      if (activeCall && activeCall.isOutgoing && data.receiverId === useAuthStore.getState().user?._id) {
+        set((state) => ({
+          activeCall: {
+            ...state.activeCall,
+            connected: true,
+            connectedAt: Date.now()
+          }
+        }));
+      }
+    };
+
+    // Handle call rejected
+    const handleCallRejected = (data) => {
+      console.log("Call rejected:", data);
+      const { activeCall, callTimeout } = get();
+
+      // Clear timeout if exists
+      if (callTimeout) {
+        clearTimeout(callTimeout);
+        set({ callTimeout: null });
+      }
+
+      // End call if this is our outgoing call
+      if (activeCall && activeCall.isOutgoing && data.receiverId === useAuthStore.getState().user?._id) {
+        toast.error(`Call rejected: ${data.reason || "User busy"}`);
+        get().endCall();
+      }
+    };
+
+    // Handle call ended
+    const handleCallEnded = (data) => {
+      console.log("Call ended:", data);
+      const { activeCall } = get();
+
+      // End call if this is our active call
+      if (activeCall && data.userId === activeCall.userId) {
+        toast.info("Call ended by the other user");
+        get().endCall();
+      }
+    };
+
+    // Handle group call invitation
+    const handleGroupCallInvitation = (data) => {
+      console.log("Received group call invitation:", data);
+      get().handleGroupCallInvitation(data);
+    };
+
+    // Handle user joining group call
+    const handleUserJoinedGroupCall = (data) => {
+      console.log("User joined group call:", data);
+      const { activeGroupCall } = get();
+
+      // Only process if we're in this group call
+      if (activeGroupCall && activeGroupCall.groupId === data.groupId) {
+        get().addGroupCallParticipant({
+          _id: data.userId,
+          fullName: data.userName,
+          isCreator: false
+        });
+      }
+    };
+
+    // Handle user leaving group call
+    const handleUserLeftGroupCall = (data) => {
+      console.log("User left group call:", data);
+      const { activeGroupCall } = get();
+
+      // Only process if we're in this group call
+      if (activeGroupCall && activeGroupCall.groupId === data.groupId) {
+        get().removeGroupCallParticipant(data.userId);
+      }
+    };
+
+    // Handle group call ended
+    const handleGroupCallEnded = (data) => {
+      console.log("Group call ended:", data);
+      const { activeGroupCall } = get();
+
+      // Only end if we're in this group call
+      if (activeGroupCall && activeGroupCall.groupId === data.groupId) {
+        toast.info(`Group call ended by ${data.userName || 'the host'}`);
+        get().endGroupCall();
+      }
+    };
+
+    // Handle LAN connection info
+    const handleLanConnectionInfo = (data) => {
+      console.log("Received LAN connection info:", data);
+      const { activeCall, activeGroupCall } = get();
+
+      // Check if we have an active call or group call
+      if (activeCall?.webRTCService) {
+        activeCall.webRTCService.handleLanInfo(data);
+      } else if (activeGroupCall?.webRTCService) {
+        activeGroupCall.webRTCService.handleLanInfo(data);
+      }
+    };
+
+    // Register event listeners
+    socket.on("incomingCall", handleIncomingCall);
+    socket.on("callAccepted", handleCallAccepted);
+    socket.on("callRejected", handleCallRejected);
+    socket.on("callEnded", handleCallEnded);
+
+    // Group call events
+    socket.on("groupCallInvitation", handleGroupCallInvitation);
+    socket.on("userJoinedGroupCall", handleUserJoinedGroupCall);
+    socket.on("userLeftGroupCall", handleUserLeftGroupCall);
+    socket.on("groupCallEnded", handleGroupCallEnded);
+
+    // LAN connection events
+    socket.on("lanConnectionInfo", handleLanConnectionInfo);
+
+    return () => {
+      // Clean up event listeners
+      socket.off("incomingCall", handleIncomingCall);
+      socket.off("callAccepted", handleCallAccepted);
+      socket.off("callRejected", handleCallRejected);
+      socket.off("callEnded", handleCallEnded);
+
+      // Group call events
+      socket.off("groupCallInvitation", handleGroupCallInvitation);
+      socket.off("userJoinedGroupCall", handleUserJoinedGroupCall);
+      socket.off("userLeftGroupCall", handleUserLeftGroupCall);
+      socket.off("groupCallEnded", handleGroupCallEnded);
+
+      // LAN connection events
+      socket.off("lanConnectionInfo", handleLanConnectionInfo);
+    };
+  },
+
   // ✅ Handles infinite scrolling (load more messages)
   loadMoreMessages: async () => {
     const { selectedUser, currentPage, hasMoreMessages } = get();
@@ -646,284 +919,571 @@ export const useChatStore = create((set, get) => ({
   },
 
   // Start group call
-  startGroupCall: (groupId, groupName) => {
-    set({
-      isGroupCallActive: true,
-      activeGroupCall: { groupId, groupName }
-    });
+  startGroupCall: async (groupId, groupName, initialParticipants = []) => {
+    const { socket, user } = useAuthStore.getState();
+    if (!socket || !user) {
+      toast.error("Not connected to server");
+      return;
+    }
+
+    try {
+      // Initialize WebRTC service
+      const webRTCService = new WebRTCService(socket);
+      await webRTCService.initLocalStream(true); // Always use video for group calls
+
+      // Check if we can detect LAN connection
+      const lanDetected = await webRTCService.detectLanConnection();
+      if (lanDetected) {
+        toast.success("LAN connection detected. Using local network for better quality.");
+      }
+
+      // Set group call state
+      set({
+        isGroupCallActive: true,
+        activeGroupCall: {
+          id: Date.now().toString(),
+          groupId,
+          groupName,
+          startTime: Date.now(),
+          webRTCService,
+          isLanConnection: lanDetected,
+          creator: user._id
+        },
+        groupCallParticipants: [
+          {
+            _id: user._id,
+            fullName: user.fullName || user.name || "You",
+            isCreator: true,
+            joinedAt: Date.now()
+          },
+          ...initialParticipants.map(p => ({
+            ...p,
+            isCreator: false,
+            joinedAt: null // Will be set when they join
+          }))
+        ]
+      });
+
+      // Emit group call start event
+      socket.emit("startGroupCall", {
+        groupId,
+        groupName,
+        callerId: user._id,
+        callerName: user.fullName || user.name || "User",
+        participants: initialParticipants.map(p => p._id),
+        timestamp: Date.now(),
+        lanIpAddresses: Array.from(webRTCService.lanIpAddresses || [])
+      });
+
+      // Send invites to initial participants
+      initialParticipants.forEach(participant => {
+        socket.emit("inviteToGroupCall", {
+          groupId,
+          groupName,
+          callerId: user._id,
+          callerName: user.fullName || user.name || "User",
+          receiverId: participant._id,
+          timestamp: Date.now()
+        });
+
+        // Add to pending invites
+        set(state => ({
+          pendingGroupCallInvites: [
+            ...state.pendingGroupCallInvites,
+            {
+              userId: participant._id,
+              userName: participant.fullName || participant.name || "User",
+              timestamp: Date.now()
+            }
+          ]
+        }));
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Error starting group call:", error);
+      toast.error("Failed to start group call. Please check your device permissions.");
+      return false;
+    }
   },
 
   // End group call
   endGroupCall: () => {
+    const { socket, user } = useAuthStore.getState();
+    const { activeGroupCall, groupCallParticipants } = get();
+
+    if (!socket || !user || !activeGroupCall) {
+      return;
+    }
+
+    // Emit group call end event
+    socket.emit("endGroupCall", {
+      groupId: activeGroupCall.groupId,
+      userId: user._id,
+      timestamp: Date.now()
+    });
+
+    // Notify all participants
+    groupCallParticipants.forEach(participant => {
+      if (participant._id !== user._id) {
+        socket.emit("groupCallEnded", {
+          groupId: activeGroupCall.groupId,
+          userId: user._id,
+          receiverId: participant._id,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    // Clean up WebRTC
+    if (activeGroupCall.webRTCService) {
+      activeGroupCall.webRTCService.closeAllConnections();
+    }
+
+    // Clear states
     set({
       isGroupCallActive: false,
-      activeGroupCall: null
+      activeGroupCall: null,
+      groupCallParticipants: [],
+      pendingGroupCallInvites: []
     });
+
+    toast.success("Group call ended");
+  },
+
+  // Add participant to active group call
+  addParticipantToGroupCall: async (userId) => {
+    const { socket, user } = useAuthStore.getState();
+    const { activeGroupCall, groupCallParticipants } = get();
+
+    if (!socket || !user || !activeGroupCall) {
+      toast.error("No active group call");
+      return false;
+    }
+
+    // Check if user is already in the call
+    if (groupCallParticipants.some(p => p._id === userId)) {
+      toast.info("User is already in the call");
+      return false;
+    }
+
+    // Get user details
+    const userToAdd = get().users.find(u => u._id === userId);
+    if (!userToAdd) {
+      toast.error("User not found");
+      return false;
+    }
+
+    // Send invite to the user
+    socket.emit("inviteToGroupCall", {
+      groupId: activeGroupCall.groupId,
+      groupName: activeGroupCall.groupName,
+      callerId: user._id,
+      callerName: user.fullName || user.name || "User",
+      receiverId: userId,
+      timestamp: Date.now()
+    });
+
+    // Add to pending invites
+    set(state => ({
+      pendingGroupCallInvites: [
+        ...state.pendingGroupCallInvites,
+        {
+          userId,
+          userName: userToAdd.fullName || userToAdd.name || "User",
+          timestamp: Date.now()
+        }
+      ]
+    }));
+
+    toast.success(`Invited ${userToAdd.fullName || userToAdd.name || "User"} to the call`);
+    return true;
   },
 
   // ✅ Start a call
-  startCall: async (userId, isVideo = false, isUserOnline = false) => {
-    const socket = useAuthStore.getState().socket;
-    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
-    const { activeCall } = get();
-
-    if (activeCall) {
-      toast.error("You're already in a call");
+  startCall: async (userId, isVideo = true, forceCall = false) => {
+    const { socket, user } = useAuthStore.getState();
+    if (!socket || !user) {
+      toast.error("Not connected to server");
       return;
     }
 
-    if (!socket) {
-      toast.error(ERROR_MESSAGES.SOCKET_CONNECTION);
+    // Check if already in a call
+    if (get().activeCall) {
+      toast.error("Already in a call");
       return;
     }
 
-    // Check if authUser exists
-    if (!authUser || !authUser._id) {
-      console.error("Error starting call: User not authenticated");
-      toast.error("You need to be logged in to make calls");
+    // Get user details
+    const receiver = get().users.find(u => u._id === userId);
+    if (!receiver) {
+      toast.error("User not found");
       return;
+    }
+
+    // Check online status - allow forcing a call even if user appears offline
+    const isOnline = get().isUserOnline(userId) || forceCall;
+    if (!isOnline) {
+      // Instead of blocking the call, show a warning and allow the call to proceed
+      toast.warning("User appears to be offline. Call may not connect.");
     }
 
     try {
-      // Find user details
-      const user = get().users.find(u => u._id === userId);
-      const userName = user ? user.fullName : "User";
+      // Initialize WebRTC service
+      const webRTCService = new WebRTCService(socket);
+      await webRTCService.initLocalStream(isVideo);
 
+      // Check if we can detect LAN connection
+      const lanDetected = await webRTCService.detectLanConnection();
+      if (lanDetected) {
+        toast.success("LAN connection detected. Using local network for better quality.");
+      }
+
+      // Set call state
       set({
-        isCallActive: true,
         activeCall: {
+          id: Date.now().toString(),
           userId,
-          userName,
+          userName: receiver.fullName || receiver.name || receiver.username || "User",
           isVideo,
           isOutgoing: true,
-          isReceiverOnline: isUserOnline,
           startTime: Date.now(),
-          connectedAt: null
+          webRTCService,
+          isLanConnection: lanDetected
         }
       });
 
-      if (isUserOnline) {
-        socket.emit("initiateCall", {
-          callerId: authUser._id,
-          callerName: authUser.fullName || "User",
-          receiverId: userId,
-          isVideo
-        });
-        toast.success(SUCCESS_MESSAGES.CALL_INITIATED);
-      } else {
-        // Use toast.success instead of toast.info which might not be available
-        toast.success(SUCCESS_MESSAGES.USER_OFFLINE);
-      }
+      // Emit call initiation
+      socket.emit("initiateCall", {
+        callerId: user._id,
+        callerName: user.fullName || user.name || user.username || "User",
+        receiverId: userId,
+        isVideo,
+        timestamp: Date.now(),
+        lanIpAddresses: Array.from(webRTCService.lanIpAddresses || [])
+      });
+
+      // Set timeout for call acceptance
+      const timeout = setTimeout(() => {
+        if (get().activeCall?.userId === userId) {
+          toast.error("Call not answered");
+          get().endCall();
+        }
+      }, 30000); // 30 seconds timeout
+
+      set({ callTimeout: timeout });
     } catch (error) {
       console.error("Error starting call:", error);
-      toast.error(ERROR_MESSAGES.MEDIA_ACCESS);
-      set({
-        isCallActive: false,
-        activeCall: null
-      });
+      toast.error("Failed to access camera/microphone. Please check your device permissions.");
     }
   },
 
   // ✅ Handle incoming call
-  handleIncomingCall: (callData) => {
-    const { activeCall, isCallActive } = get();
-    const socket = useAuthStore.getState().socket;
-    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
+  handleIncomingCall: (data) => {
+    const { callerId, callerName, isVideo, timestamp } = data;
 
-    // Prevent handling new calls if already in a call
-    if (activeCall || isCallActive) {
-      if (socket && authUser && authUser._id) {
-        socket.emit("rejectCall", {
-          callerId: callData.callerId,
-          receiverId: authUser._id,
-          reason: "busy"
-        });
-      } else {
-        console.warn("⚠️ Socket not available for rejecting call or user not authenticated");
-      }
+    // Validate incoming call data
+    if (!callerId || !callerName) {
+      console.error("Invalid incoming call data");
       return;
     }
 
+    // Set incoming call state
     set({
       isIncomingCall: true,
       incomingCallData: {
-        ...callData,
-        receivedAt: Date.now() // Add timestamp for call notification
+        callerId,
+        callerName,
+        isVideo,
+        timestamp: timestamp || Date.now()
       }
     });
+
+    // Set timeout for call acceptance
+    const timeout = setTimeout(() => {
+      if (get().incomingCallData?.callerId === callerId) {
+        get().rejectCall("Call timeout");
+      }
+    }, 30000); // 30 seconds timeout
+
+    set({ callTimeout: timeout });
   },
 
   // ✅ Accept call
   acceptCall: async () => {
-    const { incomingCallData, activeCall } = get();
-    const socket = useAuthStore.getState().socket;
-    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
-
-    if (!incomingCallData || !socket || activeCall) {
-      if (!socket) {
-        console.warn("⚠️ Socket not available for accepting call");
-        toast.error("Unable to accept call. Connection issue.");
-      }
-      return;
-    }
-
-    // Check if user is authenticated
-    if (!authUser || !authUser._id) {
-      console.warn("⚠️ User not authenticated for accepting call");
-      toast.error("You need to be logged in to accept calls");
-      return;
-    }
-
-    try {
-      const now = Date.now();
-
-      // Set call state before emitting to prevent flickering
-      set({
-        isCallActive: true,
-        activeCall: {
-          userId: incomingCallData.callerId,
-          userName: incomingCallData.callerName,
-          isVideo: incomingCallData.isVideo,
-          isOutgoing: false,
-          startTime: now,
-          connectedAt: now // Set connected time when call is accepted
-        },
-        isIncomingCall: false,
-        incomingCallData: null
-      });
-
-      socket.emit("acceptCall", {
-        callerId: incomingCallData.callerId,
-        receiverId: authUser._id
-      });
-
-      toast.success(`Connected to ${incomingCallData.callerName}`);
-    } catch (error) {
-      console.error("Error accepting call:", error);
-      toast.error("Failed to accept call");
-      set({
-        isIncomingCall: false,
-        incomingCallData: null
-      });
-    }
-  },
-
-  // ✅ End call with debounce
-  endCall: (() => {
-    let endCallTimeout;
-
-    return () => {
-      const { activeCall } = get();
-      const socket = useAuthStore.getState().socket;
-      const user = useAuthStore.getState().user;
-
-      if (!activeCall) return;
-
-      // Clear any pending end call timeout
-      if (endCallTimeout) {
-        clearTimeout(endCallTimeout);
-      }
-
-      // Emit end call event if socket is available and user is authenticated
-      if (socket && socket.connected && user && user._id) {
-        try {
-          console.log("Emitting endCall event:", {
-            userId: user._id,
-            remoteUserId: activeCall.userId
-          });
-
-          socket.emit("endCall", {
-            userId: user._id,
-            remoteUserId: activeCall.userId
-          });
-        } catch (error) {
-          console.error("Error emitting endCall event:", error);
-        }
-      } else {
-        console.warn("⚠️ Socket not available for ending call or user not authenticated", {
-          socketExists: !!socket,
-          socketConnected: socket?.connected,
-          userExists: !!user,
-          userIdExists: !!(user && user._id)
-        });
-      }
-
-      // Reset call state
-      set({
-        isCallActive: false,
-        activeCall: null,
-        isMuted: false,
-        isVideoOff: false
-      });
-
-      toast.success(SUCCESS_MESSAGES.CALL_ENDED);
-    };
-  })(),
-
-  // ✅ Reject call
-  rejectCall: () => {
+    const { socket, user } = useAuthStore.getState();
     const { incomingCallData } = get();
-    const socket = useAuthStore.getState().socket;
-    const authUser = useAuthStore.getState().user; // Fixed: use user instead of authUser
 
-    if (!incomingCallData) return;
-
-    // Emit reject call event if socket is available and user is authenticated
-    if (socket && authUser && authUser._id) {
-      socket.emit("rejectCall", {
-        callerId: incomingCallData.callerId,
-        receiverId: authUser._id,
-        reason: "rejected"
-      });
-    } else {
-      console.warn("⚠️ Socket not available for rejecting call or user not authenticated");
+    if (!socket || !user || !incomingCallData) {
+      toast.error("Cannot accept call");
+      return;
     }
 
-    // Clear incoming call state
+    // Initialize WebRTC service
+    const webRTCService = new WebRTCService(socket);
+    await webRTCService.initLocalStream(incomingCallData.isVideo);
+
+    // Set call state
     set({
-      isIncomingCall: false,
-      incomingCallData: null
+      activeCall: {
+        id: Date.now().toString(),
+        userId: incomingCallData.callerId,
+        userName: incomingCallData.callerName,
+        isVideo: incomingCallData.isVideo,
+        isOutgoing: false,
+        startTime: Date.now(),
+        webRTCService
+      },
+      incomingCallData: null,
+      isIncomingCall: false
+    });
+
+    // Clear timeout
+    if (get().callTimeout) {
+      clearTimeout(get().callTimeout);
+      set({ callTimeout: null });
+    }
+
+    // Emit call acceptance
+    socket.emit("acceptCall", {
+      callerId: incomingCallData.callerId,
+      receiverId: user._id,
+      timestamp: Date.now()
     });
   },
 
-  addGroupCallParticipant: (participant) => {
-    set((state) => ({
-      groupCallParticipants: [...state.groupCallParticipants, participant],
-    }));
+  // ✅ End call with debounce
+  endCall: () => {
+    const { socket, user } = useAuthStore.getState();
+    const { activeCall } = get();
+
+    if (!socket || !user || !activeCall) {
+      return;
+    }
+
+    // Emit call end
+    socket.emit("endCall", {
+      userId: user._id,
+      remoteUserId: activeCall.userId
+    });
+
+    // Clean up WebRTC
+    if (activeCall.webRTCService) {
+      activeCall.webRTCService.closeAllConnections();
+    }
+
+    // Clear states
+    set({
+      activeCall: null,
+      callTimeout: null
+    });
   },
 
+  // ✅ Reject call
+  rejectCall: (reason = "Call rejected") => {
+    const { socket, user } = useAuthStore.getState();
+    const { incomingCallData, callTimeout } = get();
+
+    if (!socket || !user || !incomingCallData) {
+      return;
+    }
+
+    // Emit call rejection
+    socket.emit("rejectCall", {
+      callerId: incomingCallData.callerId,
+      receiverId: user._id,
+      reason
+    });
+
+    // Clear timeout if exists
+    if (callTimeout) {
+      clearTimeout(callTimeout);
+    }
+
+    // Clear states
+    set({
+      incomingCallData: null,
+      callTimeout: null,
+      isIncomingCall: false
+    });
+  },
+
+  // Handle participant joining a group call
+  addGroupCallParticipant: (participant) => {
+    const { activeGroupCall, groupCallParticipants } = get();
+
+    // Check if participant is already in the call
+    if (groupCallParticipants.some(p => p._id === participant._id)) {
+      return;
+    }
+
+    // Add participant to the list
+    set((state) => ({
+      groupCallParticipants: [
+        ...state.groupCallParticipants,
+        {
+          ...participant,
+          joinedAt: Date.now()
+        }
+      ],
+      // Remove from pending invites if present
+      pendingGroupCallInvites: state.pendingGroupCallInvites.filter(
+        invite => invite.userId !== participant._id
+      )
+    }));
+
+    // Notify that participant joined
+    toast.success(`${participant.fullName || participant.name || 'User'} joined the call`);
+
+    // If we have an active WebRTC connection, connect to the new participant
+    if (activeGroupCall?.webRTCService) {
+      activeGroupCall.webRTCService.callUser(participant._id);
+    }
+  },
+
+  // Handle participant leaving a group call
   removeGroupCallParticipant: (participantId) => {
+    const { activeGroupCall } = get();
+
+    // Get participant details before removing
+    const participant = get().groupCallParticipants.find(p => p._id === participantId);
+
+    // Remove participant from the list
     set((state) => ({
       groupCallParticipants: state.groupCallParticipants.filter(
         (p) => p._id !== participantId
       ),
     }));
+
+    // Notify that participant left
+    if (participant) {
+      toast.info(`${participant.fullName || participant.name || 'User'} left the call`);
+    }
+
+    // Close WebRTC connection with this participant
+    if (activeGroupCall?.webRTCService) {
+      activeGroupCall.webRTCService.closeConnection(participantId);
+    }
   },
 
+  // Handle receiving a group call invitation
   handleGroupCallInvitation: (invitation) => {
+    // Add unique ID to the invitation
+    const invitationWithId = {
+      ...invitation,
+      id: Date.now().toString()
+    };
+
+    // Add to invitations list
     set((state) => ({
-      groupCallInvitations: [...state.groupCallInvitations, invitation],
+      groupCallInvitations: [...state.groupCallInvitations, invitationWithId],
     }));
+
+    // Show notification
+    toast.info(`${invitation.callerName || 'Someone'} invited you to a group call`, {
+      duration: 10000, // Show for 10 seconds
+      action: {
+        label: 'Join',
+        onClick: () => get().acceptGroupCallInvitation(invitationWithId.id)
+      }
+    });
   },
 
-  acceptGroupCallInvitation: (invitationId) => {
+  // Accept a group call invitation
+  acceptGroupCallInvitation: async (invitationId) => {
+    const { socket, user } = useAuthStore.getState();
     const invitation = get().groupCallInvitations.find(
       (inv) => inv.id === invitationId
     );
-    if (!invitation) return;
 
-    set((state) => ({
-      groupCallInvitations: state.groupCallInvitations.filter(
-        (inv) => inv.id !== invitationId
-      ),
-      activeCall: {
-        ...invitation,
-        isGroupCall: true,
-      },
-    }));
+    if (!invitation || !socket || !user) {
+      toast.error("Cannot join call");
+      return false;
+    }
+
+    try {
+      // Initialize WebRTC service
+      const webRTCService = new WebRTCService(socket);
+      await webRTCService.initLocalStream(true); // Always use video for group calls
+
+      // Check if we can detect LAN connection
+      const lanDetected = await webRTCService.detectLanConnection();
+      if (lanDetected) {
+        toast.success("LAN connection detected. Using local network for better quality.");
+      }
+
+      // Set group call state
+      set({
+        isGroupCallActive: true,
+        activeGroupCall: {
+          id: invitation.id,
+          groupId: invitation.groupId,
+          groupName: invitation.groupName,
+          startTime: invitation.timestamp,
+          webRTCService,
+          isLanConnection: lanDetected,
+          creator: invitation.callerId
+        },
+        groupCallParticipants: [
+          {
+            _id: user._id,
+            fullName: user.fullName || user.name || "You",
+            isCreator: false,
+            joinedAt: Date.now()
+          }
+        ],
+        // Remove this invitation from the list
+        groupCallInvitations: get().groupCallInvitations.filter(
+          (inv) => inv.id !== invitationId
+        )
+      });
+
+      // Emit join group call event
+      socket.emit("joinGroupCall", {
+        groupId: invitation.groupId,
+        userId: user._id,
+        userName: user.fullName || user.name || "User",
+        callerId: invitation.callerId,
+        timestamp: Date.now(),
+        lanIpAddresses: Array.from(webRTCService.lanIpAddresses || [])
+      });
+
+      toast.success(`Joined group call: ${invitation.groupName || 'Group Call'}`);
+      return true;
+    } catch (error) {
+      console.error("Error joining group call:", error);
+      toast.error("Failed to join group call. Please check your device permissions.");
+
+      // Remove invitation from the list
+      set((state) => ({
+        groupCallInvitations: state.groupCallInvitations.filter(
+          (inv) => inv.id !== invitationId
+        )
+      }));
+
+      return false;
+    }
   },
 
+  // Reject a group call invitation
   rejectGroupCallInvitation: (invitationId) => {
+    const { socket, user } = useAuthStore.getState();
+    const invitation = get().groupCallInvitations.find(
+      (inv) => inv.id === invitationId
+    );
+
+    if (invitation && socket && user) {
+      // Emit reject group call event
+      socket.emit("rejectGroupCall", {
+        groupId: invitation.groupId,
+        userId: user._id,
+        callerId: invitation.callerId,
+        reason: "declined",
+        timestamp: Date.now()
+      });
+    }
+
+    // Remove invitation from the list
     set((state) => ({
       groupCallInvitations: state.groupCallInvitations.filter(
         (inv) => inv.id !== invitationId
@@ -932,14 +1492,20 @@ export const useChatStore = create((set, get) => ({
   },
 
   // ✅ Toggle audio mute state
-  toggleMute: (isMuted) => {
-    console.log("Toggling mute state to:", isMuted);
+  toggleMute: () => {
+    const { activeCall } = get();
+    if (!activeCall?.webRTCService) return;
+
+    const isMuted = activeCall.webRTCService.toggleAudio();
     set({ isMuted });
   },
 
   // ✅ Toggle video state
-  toggleVideo: (isVideoOff) => {
-    console.log("Toggling video state to:", isVideoOff);
+  toggleVideo: () => {
+    const { activeCall } = get();
+    if (!activeCall?.webRTCService) return;
+
+    const isVideoOff = activeCall.webRTCService.toggleVideo();
     set({ isVideoOff });
   },
 }));

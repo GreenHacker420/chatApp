@@ -13,11 +13,11 @@ const ChatHeader = () => {
   const isOnline = onlineUsers.includes(selectedUser._id);
 
   const handleAudioCall = () => {
-    startCall(selectedUser._id, false, isOnline);
+    startCall(selectedUser._id, false, true); // Force call even if user appears offline
   };
 
   const handleVideoCall = () => {
-    startCall(selectedUser._id, true, isOnline);
+    startCall(selectedUser._id, true, true); // Force call even if user appears offline
   };
 
   return (

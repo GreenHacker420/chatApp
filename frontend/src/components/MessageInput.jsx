@@ -112,7 +112,7 @@ const MessageInput = () => {
   };
 
   return (
-    <div className="p-4 w-full">
+    <div className="p-4 w-full border-t border-base-300 bg-base-100 sticky bottom-0 left-0 right-0">
       {mediaPreview && (
         <div className="mb-3 flex items-center gap-2">
           <div className="relative">

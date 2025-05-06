@@ -1,0 +1,44 @@
+{
+  "name": "gutargu-electron",
+  "version": "1.0.0",
+  "description": "GutarGU Chat Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
+  },
+  "author": "GreenHacker",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "chat.greenhacker.tech",
+    "productName": "GutarGU Chat",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "icons/**/*",
+      "../frontend/dist/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "icon": "icons/icon.icns"
+    },
+    "win": {
+      "icon": "icons/icon.ico"
+    },
+    "linux": {
+      "icon": "icons",
+      "category": "Network;InstantMessaging"
+    }
+  }
+}

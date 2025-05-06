@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Plus, Wifi, WifiOff } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Wifi, WifiOff, Maximize2, Minimize2, UserPlus, FileUp } from "lucide-react";
 import toast from "react-hot-toast";
 import WebRTCService from "../services/webrtc.service";
+import AddToCallModal from "./AddToCallModal";
+import FileShareModal from "./FileShareModal";
 
 const CallInterface = () => {
   const {
@@ -13,14 +15,13 @@ const CallInterface = () => {
     toggleVideo,
     isMuted,
     isVideoOff,
-    groupCallParticipants,
-    users
+    groupCallParticipants
   } = useChatStore();
 
-  const { socket, user: authUser } = useAuthStore(); // Fix: use user instead of authUser
-
+  const { socket, user: authUser } = useAuthStore();
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [showAddParticipant, setShowAddParticipant] = useState(false);
-  const [selectedParticipants, setSelectedParticipants] = useState([]);
+  const [showFileShare, setShowFileShare] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [isLanConnection, setIsLanConnection] = useState(false);
@@ -29,6 +30,28 @@ const CallInterface = () => {
   const remoteVideoRef = useRef(null);
   const webRTCServiceRef = useRef(null);
   const connectionCheckInterval = useRef(null);
+  const callContainerRef = useRef(null);
+
+  // Handle fullscreen
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      callContainerRef.current?.requestFullscreen();
+      setIsFullScreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullScreen(false);
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullScreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   // Initialize WebRTC service
   useEffect(() => {
@@ -36,7 +59,6 @@ const CallInterface = () => {
 
     webRTCServiceRef.current = new WebRTCService(socket);
 
-    // Set up callback for remote stream updates
     webRTCServiceRef.current.onRemoteStreamUpdate = (_, stream) => {
       if (stream) {
         setRemoteStream(stream);
@@ -48,19 +70,17 @@ const CallInterface = () => {
       }
     };
 
-    // Check if we're using a LAN connection
     if (webRTCServiceRef.current.isUsingLanConnection) {
       setIsLanConnection(webRTCServiceRef.current.isUsingLanConnection());
     }
 
-    // Set up interval to check connection quality
     connectionCheckInterval.current = setInterval(() => {
       if (webRTCServiceRef.current && activeCall) {
         const quality = webRTCServiceRef.current.getConnectionQuality(activeCall.userId);
         setConnectionQualityInfo(quality);
         setIsLanConnection(quality.isLan);
       }
-    }, 5000); // Check every 5 seconds
+    }, 5000);
 
     return () => {
       if (webRTCServiceRef.current) {
@@ -76,12 +96,10 @@ const CallInterface = () => {
   useEffect(() => {
     if (!activeCall || !socket || !authUser) return;
 
-    // Initialize media for the call
     const setupCall = async () => {
       try {
         if (!webRTCServiceRef.current) return;
 
-        // Initialize local stream
         const stream = await webRTCServiceRef.current.initLocalStream(activeCall.isVideo);
         setLocalStream(stream);
 
@@ -89,21 +107,15 @@ const CallInterface = () => {
           localVideoRef.current.srcObject = stream;
         }
 
-        // If this is an outgoing call, we need to wait for the other person to accept
         if (activeCall.isOutgoing) {
-          // Wait for call acceptance
           socket.on('callAccepted', ({ receiverId }) => {
             if (receiverId === authUser._id) return;
-
-            // Start WebRTC connection
             webRTCServiceRef.current.callUser(activeCall.userId);
           });
         } else {
-          // For incoming calls, we need to establish the connection right away
           webRTCServiceRef.current.callUser(activeCall.userId);
         }
 
-        // Handle call ended
         socket.on('callEnded', ({ userId }) => {
           if (userId === activeCall.userId) {
             toast.info("Call ended by the other user");
@@ -122,7 +134,6 @@ const CallInterface = () => {
     return () => {
       socket.off('callAccepted');
       socket.off('callEnded');
-
       if (webRTCServiceRef.current) {
         webRTCServiceRef.current.closeAllConnections();
       }
@@ -131,57 +142,88 @@ const CallInterface = () => {
 
   const handleAddParticipants = () => {
     setShowAddParticipant(true);
-    // Filter users who are not already in the call
-    const availableUsers = users.filter(
-      (user) =>
-        !groupCallParticipants.some((p) => p._id === user._id) &&
-        user._id !== activeCall.caller._id
-    );
-    setSelectedParticipants(availableUsers);
   };
 
-  const handleInviteParticipant = (userId) => {
-    socket.emit('inviteToGroupCall', {
-      callId: activeCall.id,
-      userId,
-    });
+  const handleFileShare = () => {
+    setShowFileShare(true);
+  };
+
+  const handleEndCall = () => {
+    try {
+      if (webRTCServiceRef.current) {
+        webRTCServiceRef.current.closeAllConnections();
+      }
+      endCall();
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+      }
+      if (remoteStream) {
+        remoteStream.getTracks().forEach(track => track.stop());
+        setRemoteStream(null);
+      }
+    } catch (error) {
+      console.error("Error ending call:", error);
+      toast.error("Error ending call");
+    }
   };
 
   if (!activeCall) return null;
 
   return (
-    <div className="fixed bottom-0 right-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 m-4">
+    <div
+      ref={callContainerRef}
+      className={`fixed ${isFullScreen ? 'inset-0 z-[100] bg-black' : 'bottom-0 right-0 w-80 md:w-96 z-[100]'} bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 m-4 transition-all duration-300`}
+    >
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
+        <div className="flex items-center w-full">
           {activeCall.isVideo && (
-            <div className="relative w-full mb-4">
-              {localStream && (
-                <div className="relative w-full h-32 mb-2">
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover rounded-lg"
-                  />
-                  <div className="absolute bottom-1 left-1 text-white text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
-                    You
-                  </div>
-                </div>
-              )}
-              {remoteStream && (
-                <div className="relative w-full h-32">
+            <div className={`relative w-full ${isFullScreen ? 'h-[calc(100vh-120px)]' : 'h-48 md:h-64'} mb-2`}>
+              {/* Remote video (main video) */}
+              <div className="absolute inset-0 w-full h-full bg-gray-900 rounded-lg flex items-center justify-center">
+                {remoteStream ? (
                   <video
                     ref={remoteVideoRef}
                     autoPlay
                     playsInline
                     className="w-full h-full object-cover rounded-lg"
                   />
-                  <div className="absolute bottom-1 left-1 text-white text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
+                ) : (
+                  <div className="text-white text-center">
+                    <div className="animate-pulse mb-2">
+                      <Phone size={40} className="mx-auto" />
+                    </div>
+                    <p>Connecting to {activeCall.userName || "Caller"}...</p>
+                  </div>
+                )}
+                {remoteStream && (
+                  <div className="absolute bottom-2 left-2 text-white text-xs bg-black bg-opacity-50 px-2 py-1 rounded">
                     {activeCall.userName || "Caller"}
                   </div>
+                )}
+              </div>
+
+              {/* Local video (picture-in-picture) */}
+              <div className={`absolute ${isFullScreen ? 'w-48 h-36 bottom-4 right-4' : 'w-28 h-24 md:w-32 md:h-28 bottom-2 right-2'} z-10 rounded-lg overflow-hidden border-2 border-white shadow-lg bg-gray-800`}>
+                {localStream ? (
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="animate-pulse">
+                      <Video size={20} className="text-gray-400" />
+                    </div>
+                  </div>
+                )}
+                <div className="absolute bottom-1 left-1 text-white text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
+                  You
                 </div>
-              )}
+              </div>
             </div>
           )}
           {!activeCall.isVideo && (
@@ -198,178 +240,113 @@ const CallInterface = () => {
             </>
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleFullScreen}
+            className="p-2 bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600 transition-all"
+            aria-label={isFullScreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullScreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-center gap-3 md:gap-4 mt-4">
         <button
-          onClick={() => {
-            try {
-              // Clean up WebRTC connections before ending call
-              if (webRTCServiceRef.current) {
-                webRTCServiceRef.current.closeAllConnections();
-              }
+          onClick={() => toggleMute(!isMuted)}
+          className={`p-3 rounded-full ${isMuted ? 'bg-red-500' : 'bg-gray-200 dark:bg-gray-700'} text-white shadow-md hover:shadow-lg transition-all`}
+          aria-label={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+        </button>
 
-              // End the call in the store
-              endCall();
+        {activeCall.isVideo && (
+          <button
+            onClick={() => toggleVideo(!isVideoOff)}
+            className={`p-3 rounded-full ${isVideoOff ? 'bg-red-500' : 'bg-gray-200 dark:bg-gray-700'} text-white shadow-md hover:shadow-lg transition-all`}
+            aria-label={isVideoOff ? "Turn on camera" : "Turn off camera"}
+          >
+            {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+          </button>
+        )}
 
-              // Manually emit end call event if needed
-              if (!socket && authUser) {
-                console.warn("Socket not available, manually cleaning up call");
-                // Clean up local state
-                if (localStream) {
-                  localStream.getTracks().forEach(track => track.stop());
-                  setLocalStream(null);
-                }
-                if (remoteStream) {
-                  remoteStream.getTracks().forEach(track => track.stop());
-                  setRemoteStream(null);
-                }
-              }
-            } catch (error) {
-              console.error("Error ending call:", error);
-              toast.error("Error ending call");
-            }
-          }}
-          className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"
+        <button
+          onClick={handleEndCall}
+          className="p-3 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 hover:shadow-lg transition-all"
+          aria-label="End call"
         >
           <PhoneOff size={20} />
         </button>
+
+        {isLanConnection && (
+          <button
+            onClick={() => setShowFileShare(true)}
+            className="p-3 bg-primary text-white rounded-full shadow-md hover:opacity-90 hover:shadow-lg transition-all"
+            aria-label="Share files"
+          >
+            <FileUp size={20} />
+          </button>
+        )}
       </div>
 
-      {activeCall.isGroupCall && (
-        <div className="mb-4">
+      {/* Call Actions */}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={handleAddParticipants}
+          className="btn btn-sm btn-outline gap-2"
+        >
+          <UserPlus size={16} />
+          Add People
+        </button>
+
+        <button
+          onClick={handleFileShare}
+          className="btn btn-sm btn-outline gap-2"
+          disabled={!isLanConnection}
+          title={isLanConnection ? "Share Files (LAN)" : "LAN connection required for file sharing"}
+        >
+          <FileUp size={16} />
+          Share Files
+        </button>
+      </div>
+
+      {/* Participants List */}
+      {groupCallParticipants && groupCallParticipants.length > 0 && (
+        <div className="mt-4">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium">Participants</h4>
-            <button
-              onClick={handleAddParticipants}
-              className="p-1 text-blue-500 hover:bg-blue-50 rounded-full"
-            >
-              <Plus size={16} />
-            </button>
+            <h4 className="font-medium">Participants ({groupCallParticipants.length})</h4>
           </div>
           <div className="flex flex-wrap gap-2 mt-2">
             {groupCallParticipants.map((participant) => (
               <div
                 key={participant._id}
-                className="flex items-center bg-gray-100 rounded-full px-3 py-1"
+                className="flex items-center gap-2 bg-base-200 px-2 py-1 rounded-full"
               >
-                <img
-                  src={participant.avatar}
-                  alt={participant.name}
-                  className="w-6 h-6 rounded-full mr-2"
-                />
-                <span className="text-sm">{participant.name}</span>
+                <span className="text-sm">{participant.fullName || participant.name || "User"}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Connection quality indicator */}
-      <div className="mb-3 flex justify-center">
-        <div className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${
-          isLanConnection
-            ? 'bg-green-100 text-green-800 border border-green-300'
-            : 'bg-blue-100 text-blue-800 border border-blue-300'
-        }`}>
-          {isLanConnection ? (
-            <>
-              <Wifi className="w-3 h-3" />
-              <span>LAN Connection ({connectionQualityInfo.quality === 'high' ? 'High' : 'Enhanced'} Quality)</span>
-            </>
-          ) : (
-            <>
-              <WifiOff className="w-3 h-3" />
-              <span>Internet Connection (Standard Quality)</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="flex justify-center space-x-4">
-        <button
-          onClick={() => {
-            if (webRTCServiceRef.current) {
-              try {
-                const newMuteState = webRTCServiceRef.current.toggleAudio();
-                console.log("Audio toggled, new state:", newMuteState);
-                toggleMute(newMuteState);
-              } catch (error) {
-                console.error("Error toggling audio:", error);
-                // Toggle mute state directly if WebRTC function fails
-                toggleMute(!isMuted);
-              }
-            } else {
-              console.warn("WebRTC service not available, toggling state directly");
-              toggleMute(!isMuted);
-            }
-          }}
-          className={`p-3 rounded-full ${
-            isMuted ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700'
-          }`}
-        >
-          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-        {activeCall.isVideo && (
-          <button
-            onClick={() => {
-              if (webRTCServiceRef.current) {
-                try {
-                  const newVideoState = webRTCServiceRef.current.toggleVideo();
-                  console.log("Video toggled, new state:", newVideoState);
-                  toggleVideo(newVideoState);
-                } catch (error) {
-                  console.error("Error toggling video:", error);
-                  // Toggle video state directly if WebRTC function fails
-                  toggleVideo(!isVideoOff);
-                }
-              } else {
-                console.warn("WebRTC service not available, toggling state directly");
-                toggleVideo(!isVideoOff);
-              }
-            }}
-            className={`p-3 rounded-full ${
-              isVideoOff ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-gray-700'
-            }`}
-          >
-            {isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
-          </button>
-        )}
-      </div>
-
-      {showAddParticipant && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg p-4 w-96">
-            <h3 className="text-lg font-semibold mb-4">Add Participants</h3>
-            <div className="max-h-60 overflow-y-auto">
-              {selectedParticipants.map((user) => (
-                <div
-                  key={user._id}
-                  className="flex items-center justify-between p-2 hover:bg-gray-50"
-                >
-                  <div className="flex items-center">
-                    <img
-                      src={user.avatar}
-                      alt={user.name}
-                      className="w-8 h-8 rounded-full mr-2"
-                    />
-                    <span>{user.name}</span>
-                  </div>
-                  <button
-                    onClick={() => handleInviteParticipant(user._id)}
-                    className="px-3 py-1 bg-blue-500 text-white rounded-full text-sm hover:bg-blue-600"
-                  >
-                    Invite
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowAddParticipant(false)}
-              className="mt-4 w-full py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-            >
-              Close
-            </button>
-          </div>
+      {connectionQualityInfo && (
+        <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">
+          {isLanConnection ? <Wifi size={12} /> : <WifiOff size={12} />}
+          <span>Connection: {connectionQualityInfo.quality}</span>
         </div>
       )}
+
+      {/* Add to Call Modal */}
+      <AddToCallModal
+        isOpen={showAddParticipant}
+        onClose={() => setShowAddParticipant(false)}
+      />
+
+      {/* File Share Modal */}
+      <FileShareModal
+        isOpen={showFileShare}
+        onClose={() => setShowFileShare(false)}
+      />
     </div>
   );
 };

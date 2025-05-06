@@ -5,13 +5,22 @@ import { Link } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
-import { User } from "lucide-react";
+import LanUsers from "../components/LanUsers";
+import { User, Wifi } from "lucide-react";
+import electronService from "../services/electron.service";
 
 const HomePage = () => {
   const { selectedUser } = useChatStore();
   const { socket } = useAuthStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 640); // ✅ Sidebar open by default on desktop
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [showLanUsers, setShowLanUsers] = useState(false);
+  const [isElectron, setIsElectron] = useState(false);
+
+  // Check if running in Electron
+  useEffect(() => {
+    setIsElectron(electronService.isElectron);
+  }, []);
 
   // ✅ Update Page Title Dynamically
   useEffect(() => {
@@ -44,22 +53,47 @@ const HomePage = () => {
     <div className="min-h-screen bg-base-200">
       <div className="flex items-center justify-center pt-20 px-4">
         <div className="bg-base-100 rounded-lg shadow-lg w-full max-w-6xl h-[calc(100vh-8rem)] flex">
-          {/* ✅ Sidebar Toggle for Mobile */}
+          {/* Sidebar */}
           {isSidebarOpen && <Sidebar onlineUsers={onlineUsers} />}
 
-          <div className="flex flex-1 h-full rounded-lg overflow-hidden">
-            {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
+          {/* Main Content */}
+          <div className="flex flex-col flex-1 h-full rounded-lg overflow-hidden">
+            {/* Chat or No Chat Selected */}
+            <div className="flex-1 overflow-hidden">
+              {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
+            </div>
+
+            {/* LAN Users Section - Only show when no chat is selected */}
+            {!selectedUser && showLanUsers && (
+              <div className="p-4 border-t border-base-300">
+                <LanUsers onClose={() => setShowLanUsers(false)} />
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ✅ Mobile Sidebar Toggle Button */}
-      <button
-        className="fixed bottom-6 left-6 btn btn-primary sm:hidden"
-        onClick={() => setIsSidebarOpen((prev) => !prev)}
-      >
-        {isSidebarOpen ? "❌ Close Sidebar" : "📂 Open Sidebar"}
-      </button>
+      {/* Mobile Action Buttons */}
+      <div className="fixed bottom-6 left-6 flex gap-3 sm:hidden">
+        {/* Sidebar Toggle */}
+        <button
+          className="btn btn-primary"
+          onClick={() => setIsSidebarOpen((prev) => !prev)}
+        >
+          {isSidebarOpen ? "❌ Close Sidebar" : "📂 Open Sidebar"}
+        </button>
+
+        {/* LAN Users Toggle - Only show when no chat is selected */}
+        {!selectedUser && (
+          <button
+            className="btn btn-circle btn-primary"
+            onClick={() => setShowLanUsers((prev) => !prev)}
+            aria-label="Toggle LAN Users"
+          >
+            <Wifi className="w-5 h-5" />
+          </button>
+        )}
+      </div>
 
       {/* Profile Button for Mobile */}
       <Link
@@ -69,6 +103,17 @@ const HomePage = () => {
       >
         <User className="w-5 h-5" />
       </Link>
+
+      {/* Desktop LAN Users Button */}
+      {!selectedUser && (
+        <button
+          className="fixed bottom-6 right-20 btn btn-circle btn-primary hidden sm:flex"
+          onClick={() => setShowLanUsers((prev) => !prev)}
+          aria-label="Toggle LAN Users"
+        >
+          <Wifi className="w-5 h-5" />
+        </button>
+      )}
     </div>
   );
 };

@@ -8,6 +8,7 @@ import { formatMessageTime } from "../lib/utils";
 import { MoreVertical, Trash2, Phone } from "lucide-react";
 import toast from "react-hot-toast";
 import GroupCall from "./GroupCall";
+import MessageStatus from "./MessageStatus";
 
 const ChatContainer = () => {
   const {
@@ -193,7 +194,7 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-auto">
+    <div className="flex-1 flex flex-col h-full relative">
       <ChatHeader>
         {selectedGroup && (
           <button
@@ -213,7 +214,7 @@ const ChatContainer = () => {
         />
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-2">
         {/* Display messages in chronological order (oldest first) */}
         {[...messages].slice().reverse().map((message) => {
           // Check if the message was sent by the current user
@@ -265,8 +266,13 @@ const ChatContainer = () => {
 
               <div className="chat-header mb-1 flex justify-between w-full">
                 <span className="text-xs opacity-50">{formatMessageTime(message.createdAt)}</span>
-                {isSentByMe && message.isRead && (
-                  <span className="text-xs text-green-500">✔ Read</span>
+                {isSentByMe && (
+                  <div className="flex items-center gap-1">
+                    <MessageStatus
+                      status={message.isRead ? 'read' : (message.status || 'sent')}
+                      isLanMessage={message.isLanMessage || selectedUser.isLanUser}
+                    />
+                  </div>
                 )}
               </div>
 
